@@ -297,7 +297,8 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     var label = cell.querySelector('span');
     if (label) label.textContent = T('title');
     else cell.textContent = T('title');
-    navList.appendChild(cell);
+    // 紧跟在"通用设置"之后（第二个位置），比排在最后更显眼
+    navList.insertBefore(cell, navList.children[1] || null);
 
     // 内容区 = nav 之后的兄弟（DSH sections 容器）；我们的面板挂到面板根下
     var content = nav.nextElementSibling;
