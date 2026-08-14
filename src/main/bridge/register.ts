@@ -35,6 +35,10 @@ export interface ShellOps {
   readLog(kind: 'shell' | 'service'): string;
   /** 打开安装向导页（guide 页 dsh-missing 的"安装 DSH"按钮） */
   goInstall(): void;
+  /** 打开设置页（标题栏齿轮入口） */
+  openPromptSettings(): void;
+  /** 返回对话主界面（设置/通知/日志页的"返回对话"） */
+  openMain(): void;
   /** 用户选定端口：记住并重跑启动序列（[FR-25.3]） */
   choosePort(port: number): Promise<void>;
   /** 安装向导：开始安装（ask 步 → 进入选目录步） */
@@ -49,8 +53,8 @@ export interface ShellOps {
   discoverModels(input: { baseUrl: string; apiKey: string }): Promise<{ ok: boolean; models: string[]; message?: string }>;
   /** 提示词管理：读取当前设置与全局指令文件（[FR-16]） */
   getPromptSettings(): PromptSettingsState;
-  /** 提示词管理：保存身份开关/persona/全局指令；restart=true 时重启壳拉起的服务以应用 --patch */
-  savePromptSettings(input: { includeHarnessIdentity: boolean; persona: string; globalPrompt: string; restart: boolean; notifyResult?: boolean }): Promise<SavePromptSettingsResult>;
+  /** 提示词管理：保存身份开关/persona/全局指令；restart=true 时重启壳拉起的服务以应用 --patch；uiTheme（三态）即时生效 */
+  savePromptSettings(input: { includeHarnessIdentity: boolean; persona: string; globalPrompt: string; restart: boolean; notifyResult?: boolean; uiTheme?: 'system' | 'dark' | 'light' }): Promise<SavePromptSettingsResult>;
   /** 通知历史（[D31]）：新→旧，最多 500 条 */
   readNotifications(): NotificationHistoryEntry[];
   /** 通知历史：清空 */
@@ -75,6 +79,10 @@ export function registerBridge(ops: ShellOps): void {
   });
 
   ipcMain.handle(BRIDGE_API.goInstall, () => ops.goInstall());
+
+  ipcMain.handle(BRIDGE_API.openPromptSettings, () => ops.openPromptSettings());
+
+  ipcMain.handle(BRIDGE_API.openMain, () => ops.openMain());
 
   ipcMain.handle(BRIDGE_API.choosePort, (_event, raw: unknown) => {
     const port = parsePort(raw);

@@ -95,6 +95,10 @@ export interface PromptSettingsState {
   globalPromptPath: string | null;
   /** 任务结果桌面通知开关（[FR-4.3] 类型开关；默认开） */
   notifyResult: boolean;
+  /** 界面主题选择（[D83]/[D85] 扩展：跟随系统/深色/浅色；默认跟随系统） */
+  uiTheme: 'system' | 'dark' | 'light';
+  /** 实际生效的主题（system 已按操作系统解析为 dark/light；页面渲染用这个） */
+  uiThemeResolved: 'dark' | 'light';
 }
 
 export interface SavePromptSettingsResult {
@@ -115,6 +119,7 @@ export function parsePromptSettingsInput(raw: unknown): {
   globalPrompt: string;
   restart: boolean;
   notifyResult?: boolean;
+  uiTheme?: 'system' | 'dark' | 'light';
 } | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const obj = raw as Record<string, unknown>;
@@ -131,6 +136,7 @@ export function parsePromptSettingsInput(raw: unknown): {
     globalPrompt: string;
     restart: boolean;
     notifyResult?: boolean;
+    uiTheme?: 'system' | 'dark' | 'light';
   } = {
     includeHarnessIdentity: obj.includeHarnessIdentity,
     persona: obj.persona,
@@ -141,6 +147,11 @@ export function parsePromptSettingsInput(raw: unknown): {
   if (obj.notifyResult !== undefined) {
     if (typeof obj.notifyResult !== 'boolean') return null;
     input.notifyResult = obj.notifyResult;
+  }
+  // 主题可选（向后兼容旧页面不传）；只认 system/dark/light
+  if (obj.uiTheme !== undefined) {
+    if (obj.uiTheme !== 'dark' && obj.uiTheme !== 'light' && obj.uiTheme !== 'system') return null;
+    input.uiTheme = obj.uiTheme;
   }
   return input;
 }
@@ -156,6 +167,10 @@ export const BRIDGE_API = {
   openLogs: 'dsh:openLogs',
   readLog: 'dsh:readLog',
   goInstall: 'dsh:goInstall',
+  /** 打开设置页（标题栏齿轮入口，[FR-21]：功能设置从对话页面可直达） */
+  openPromptSettings: 'dsh:openPromptSettings',
+  /** 返回对话主界面（设置/通知/日志页的"返回对话"） */
+  openMain: 'dsh:openMain',
   // ---- 端口 ----
   choosePort: 'dsh:choosePort',
   // ---- 安装向导 ----
