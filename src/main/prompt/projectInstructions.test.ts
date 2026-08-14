@@ -26,7 +26,34 @@ describe('normalizeWorkspaceRows（workspace.list 响应归一化）', () => {
 
   it('非数组 → 空', () => {
     expect(normalizeWorkspaceRows(null)).toEqual([]);
-    expect(normalizeWorkspaceRows({ items: [] })).toEqual([]);
+    expect(normalizeWorkspaceRows('x')).toEqual([]);
+    expect(normalizeWorkspaceRows(42)).toEqual([]);
+  });
+
+  it('真实响应为 {items:[...]} 包装对象：自动解包（回归：workspace.list 返回包装对象而非裸数组）', () => {
+    const raw = {
+      items: [
+        {
+          workspaceId: 'a56ee5ed-bb8c-49a9-8e73-133699c14e4d',
+          path: 'C:\\Users\\14681\\Desktop\\dsp\\v2',
+          title: 'v2',
+          sessionIds: [],
+          createdAt: '2026-08-14T09:34:09.973Z',
+        },
+        null,
+        { workspaceId: 'w-keep', title: 't', path: 'C:\\proj\\keep', sessionIds: ['s1'] },
+        { workspaceId: '', path: '' },
+      ],
+      archivedSessionIds: ['session-x'],
+    };
+    expect(normalizeWorkspaceRows(raw)).toEqual([
+      { workspaceId: 'a56ee5ed-bb8c-49a9-8e73-133699c14e4d', title: 'v2', path: 'C:\\Users\\14681\\Desktop\\dsp\\v2' },
+      { workspaceId: 'w-keep', title: 't', path: 'C:\\proj\\keep' },
+    ]);
+  });
+
+  it('包装对象缺 items → 空', () => {
+    expect(normalizeWorkspaceRows({ archivedSessionIds: ['s'] })).toEqual([]);
   });
 });
 
