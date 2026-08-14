@@ -13,11 +13,17 @@ export interface WorkspaceRow {
   path: string;
 }
 
-/** workspace.list 响应归一化：垃圾项丢弃、字段兜底为字符串、缺 id/path 的行丢弃 */
+/** workspace.list 响应归一化：接受 {items:[...]} 包装对象（真实响应）与裸数组；
+ * 垃圾项丢弃、字段兜底为字符串、缺 id/path 的行丢弃 */
 export function normalizeWorkspaceRows(raw: unknown): WorkspaceRow[] {
-  if (!Array.isArray(raw)) return [];
+  const list = Array.isArray(raw)
+    ? raw
+    : (typeof raw === 'object' && raw !== null && Array.isArray((raw as { items?: unknown }).items))
+      ? (raw as { items: unknown[] }).items
+      : null;
+  if (list === null) return [];
   const rows: WorkspaceRow[] = [];
-  for (const item of raw) {
+  for (const item of list) {
     if (typeof item !== 'object' || item === null) continue;
     const obj = item as Record<string, unknown>;
     const workspaceId = typeof obj.workspaceId === 'string' || typeof obj.workspaceId === 'number'
