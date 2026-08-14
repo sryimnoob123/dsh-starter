@@ -191,8 +191,10 @@
       const t = STR[lang];
       document.title = 'deepseekharness — ' + t.docTitle;
 
-      // 步骤序号：detect 为准备阶段不计入；ask..launch = 第 1..6 步（共 6 步）
-      const ORDER = ['ask', 'download', 'chooseDir', 'install', 'configure', 'launch'];
+      // 步骤序号：detect 为准备阶段不计入；ask..launch = 第 1..6 步（共 6 步）。
+      // 顺序 = 实际流转顺序（壳驱动 [D72]）：ask → chooseDir → download → install → configure → launch
+      //（startInstall 先选目录再下载，chooseDir 是第 2 步；否则用户会看到 1 → 3 → 2 跳号）
+      const ORDER = ['ask', 'chooseDir', 'download', 'install', 'configure', 'launch'];
       const STEP_ICON = {
         detect: 'search', ask: 'download', download: 'download', chooseDir: 'folder',
         install: 'box', configure: 'sliders', launch: 'launch', done: 'check', error: 'bolt',

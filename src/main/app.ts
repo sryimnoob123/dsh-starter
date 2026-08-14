@@ -25,6 +25,7 @@ import { buildNpmInstallArgs, defaultInstallDir, dshBinPath, dshEntryJsPath } fr
 import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import { DESKTOP_CSS, TITLEBAR_SCRIPT } from './window/desktopChrome.js';
+import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -241,9 +242,17 @@ function notify(candidate: { type: 'result'; sessionId: string; title: string })
   if (!Notification.isSupported()) return;
   const n = new Notification({ title: 'deepseekharness', body: candidate.title });
   n.on('click', () => {
-    // V1 浅通知：只唤起窗口（定位会话为 V1+ 插件，[D72]）
-    mainWindow?.show();
-    mainWindow?.focus();
+    // 唤起窗口；主界面已加载时定位到对应会话：写入 dsh.sessions.current 后 reload，
+    // DSH 启动恢复契约会切到该会话（window/locate.ts）。壳本地页（file://）只唤起窗口。
+    const win = mainWindow;
+    if (!win) return;
+    win.show();
+    win.focus();
+    if (candidate.sessionId && isDshAppUrl(win.webContents.getURL())) {
+      win.webContents
+        .executeJavaScript(buildLocateSessionScript(candidate.sessionId))
+        .catch(() => undefined);
+    }
   });
   n.show();
 }
