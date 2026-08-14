@@ -81,6 +81,36 @@ export const PAGE_DRAG_SCRIPT = `(function () {
   document.documentElement.appendChild(s);
 })();`;
 
+/**
+ * 轨迹视图底部清理（用户拍板）：切到"轨迹"标签时，底部固定层（任务卡 + 输入框，
+ * 都在 composerSeat 容器内）会挡住轨迹表格——选轨迹时隐藏该容器，回到"对话"时恢复。
+ * 锚点：role=tab 的 aria-selected + composerSeat 语义后缀（不依赖哈希前缀）。
+ */
+export const VIEW_TAB_SCRIPT = `(function () {
+  function seats() {
+    // 有排队消息/任务卡时，底部固定层 = composerStack（含输入框 + 队列 dock）；
+    // 无排队时 DSH 收成零高 composerSeat。两者任一在场都归它管，dock 再兜底。
+    return Array.prototype.slice.call(
+      document.querySelectorAll('div[class*="composerStack"],div[class*="composerSeat"],div[class*="dock"]'),
+    );
+  }
+  function update() {
+    var traj = Array.prototype.slice.call(document.querySelectorAll('[role=tab]')).some(function (t) {
+      return /轨迹|Trajectory/.test(t.textContent || '') && t.getAttribute('aria-selected') === 'true';
+    });
+    seats().forEach(function (s) {
+      s.style.display = traj ? 'none' : '';
+    });
+  }
+  update();
+  new MutationObserver(update).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['aria-selected'],
+  });
+})();`;
+
 /** 壳本地页面主题初始化（file:// 页面注入）：按 ?uiTheme= 落 html[data-dsh-theme]（缺省深色） */
 export const PAGE_THEME_SCRIPT = `(function () {
   if (document.documentElement.hasAttribute('data-dsh-theme')) return;
