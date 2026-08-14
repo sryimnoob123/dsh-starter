@@ -14,6 +14,13 @@ win:
   target:
     - nsis
   icon: assets/icon.png
+# [D78] 自动更新：GitHub 发布源（生成 latest.yml + 内嵌 app-update.yml；
+# 产物仍用 gh CLI 上传到 Release，electron-builder 本身不发布）
+publish:
+  provider: github
+  owner: sryimnoob123
+  repo: dsh-starter
+  publishAutoUpdate: true
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
