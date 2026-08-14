@@ -12,6 +12,7 @@ import { buildCommandArgs, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, ty
 import { isNodeOk } from './service/nodeCheck.js';
 import { Registry } from './extensions/registry.js';
 import { classifyEvent, type MuxFrame } from './notify/classify.js';
+import { unwrapMuxEnvelope } from './notify/mux.js';
 import { diffJobs, type JobStatus } from './events/catchup.js';
 import { redact, buildLogLine } from './logging/redact.js';
 import { readLogTail } from './logging/readLog.js';
@@ -372,11 +373,13 @@ function subscribeEvents(port: number): void {
 
   eventSocket.on('message', (data) => {
     try {
-      const frame = JSON.parse(String(data)) as MuxFrame;
+      // 新 mux 协议：所有帧包在 server-request 信封里，真正的帧在 payload（mux.ts）
+      const frame = unwrapMuxEnvelope(JSON.parse(String(data))) as MuxFrame;
       trackFrame(frame);
       if (frame.type === 'session/jobs') {
         const terminal = diffJobs(jobState, frame);
         for (const job of terminal) {
+          writeLog('shell', `terminal job ${job.status} for ${frame.sessionId}`);
           notify({
             type: 'result',
             sessionId: frame.sessionId,
