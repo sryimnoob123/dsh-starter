@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      视觉方案 A「气泡蓝」（用户拍板 2026-08-14，[FR-35]/[D76]）
+      桥契约：src/main/bridge/contract.ts —— choosePort(port)、onServiceStatus(cb)、retry()
+      参数：port=<被占用端口>，candidates=3081,3082,3083，lang=zh|en
+    -->
+    <style>
+      /* ===== OpenChamber 深色设计 token（[D83] 用户拍板，5 页共用，单文件内联，无外部资源） ===== */
+      :root {
+        color-scheme: dark;
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --success: oklch(77% .17 85);
+        --success-soft: oklch(29% .01 40);
+        --line: oklch(31% .01 35);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        display: grid; place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .card {
+        width: min(560px, 100%);
+        background: var(--card);
+        border-radius: 16px;
+        padding: 40px 36px 30px;
+        text-align: center;
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      .badge {
+        width: 64px; height: 64px; margin: 0 auto 20px;
+        border-radius: 50%; display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+      }
+      .badge svg { width: 32px; height: 32px; }
+
+      h1 { margin: 0 0 10px; font-size: 24px; font-weight: 600; line-height: 1.3; }
+      .lede { margin: 0 auto 20px; max-width: 42ch; color: var(--text-2); }
+
+      /* 候选端口行 */
+      .ports { margin: 0 0 18px; padding: 0; list-style: none; }
+      .ports li {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 10px 14px; margin: 8px 0;
+        border: 1px solid var(--line); border-radius: 12px;
+      }
+      .ports .num { font-family: Consolas, monospace; font-size: 16px; font-weight: 600; }
+      .ports .tag { color: var(--text-2); font-size: 12.5px; margin-left: 8px; }
+
+      .btn {
+        display: block; width: 100%; min-height: 44px; padding: 10px 18px;
+        border: 0; border-radius: 10px; cursor: pointer;
+        font: 600 15px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: var(--brand); color: oklch(16% .01 30);
+        transition: background 120ms ease;
+      }
+      .btn:hover { background: var(--brand-hover); }
+      .btn:active { background: var(--brand-active); }
+      .btn[disabled] { opacity: 0.6; cursor: default; }
+      .btn--small { width: auto; min-height: 36px; min-width: 84px; padding: 6px 18px; font-size: 13px; flex: none; }
+
+      .note { margin: 0 0 4px; color: var(--text-2); font-size: 13px; }
+      .status { min-height: 1.4em; margin: 12px 0 0; color: var(--text-2); font-size: 13px; }
+      .link {
+        background: none; border: 0; padding: 8px 4px; cursor: pointer;
+        color: var(--brand); font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .link:hover { text-decoration: underline; }
+
+      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+      @media (max-width: 480px) {
+        body { padding: 12px; }
+        .card { padding: 28px 20px 22px; }
+        h1 { font-size: 21px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+        .btn { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0Z"/><path d="M12 16v5"/></svg>
+      </div>
+      <h1 id="title"></h1>
+      <p class="lede" id="lede"></p>
+      <ul class="ports" id="ports"></ul>
+      <p class="note" id="note"></p>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const STR = {
+        zh: {
+          title: (p) => `端口 ${p} 被占用`,
+          lede: '另一个程序正在使用这个端口。从下面选一个空闲端口，服务就能启动了。',
+          pick: '选它', recommended: '推荐',
+          note: '选择后应用会记住这个端口，下次直接用。',
+          starting: '正在用新端口启动服务…',
+          empty: '暂时没有可用的候选端口。',
+          emptyHint: '可以关闭占用端口的程序后重试。',
+          retry: '重试',
+          preview: '预览模式：未连接壳，按钮不可用。',
+          docTitle: '端口冲突',
+        },
+        en: {
+          title: (p) => `Port ${p} is in use`,
+          lede: 'Another program is using this port. Pick a free one below and the service can start.',
+          pick: 'Use it', recommended: 'Recommended',
+          note: 'The app will remember your choice for next time.',
+          starting: 'Starting the service on the new port…',
+          empty: 'No candidate ports available right now.',
+          emptyHint: 'Close the program using the port, then retry.',
+          retry: 'Retry',
+          preview: 'Preview mode: shell bridge not connected.',
+          docTitle: 'Port conflict',
+        },
+      };
+      const t = STR[lang];
+      document.title = 'deepseekharness — ' + t.docTitle;
+
+      const occupied = params.get('port') || '3080';
+      // 候选端口口径与桥契约 parsePort 一致：整数且 1024..65535
+      const candidates = (params.get('candidates') || '')
+        .split(',')
+        .map((s) => Number(s))
+        .filter((n) => Number.isInteger(n) && n >= 1024 && n <= 65535);
+
+      document.getElementById('title').textContent = t.title(occupied);
+      document.getElementById('lede').textContent = t.lede;
+
+      const shell = window.dshShell || null;
+      const status = document.getElementById('status');
+      const list = document.getElementById('ports');
+      const note = document.getElementById('note');
+
+      if (candidates.length > 0) {
+        note.textContent = t.note;
+        candidates.forEach((port, i) => {
+          const li = document.createElement('li');
+          const label = document.createElement('span');
+          const num = document.createElement('span');
+          num.className = 'num';
+          num.textContent = String(port);
+          label.appendChild(num);
+          if (i === 0) {
+            const tag = document.createElement('span');
+            tag.className = 'tag';
+            tag.textContent = t.recommended;
+            label.appendChild(tag);
+          }
+          const btn = document.createElement('button');
+          btn.className = 'btn btn--small';
+          btn.type = 'button';
+          btn.textContent = t.pick;
+          btn.addEventListener('click', () => {
+            if (!shell) { status.textContent = t.preview; return; }
+            btn.disabled = true;
+            status.textContent = t.starting;
+            Promise.resolve(shell.choosePort(port))
+              .catch(() => undefined)
+              .finally(() => { btn.disabled = false; });
+          });
+          li.appendChild(label);
+          li.appendChild(btn);
+          list.appendChild(li);
+        });
+      } else {
+        // 空状态：给出"怎么办"（[FR-21.3]）
+        const li = document.createElement('li');
+        li.style.justifyContent = 'center';
+        const wrap = document.createElement('span');
+        wrap.textContent = t.empty + ' ' + t.emptyHint;
+        li.appendChild(wrap);
+        list.appendChild(li);
+        const retry = document.createElement('button');
+        retry.className = 'link';
+        retry.type = 'button';
+        retry.textContent = t.retry;
+        retry.addEventListener('click', () => {
+          if (!shell) { status.textContent = t.preview; return; }
+          Promise.resolve(shell.retry()).catch(() => undefined);
+        });
+        note.appendChild(retry);
+      }
+
+      // 壳推来的启动状态一句话（契约：onServiceStatus({status, detail})）
+      if (shell && typeof shell.onServiceStatus === 'function') {
+        shell.onServiceStatus((event) => {
+          if (event && typeof event.detail === 'string' && event.detail) status.textContent = event.detail;
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      视觉方案 A「气泡蓝」（用户拍板 2026-08-14，[FR-35]/[D76]）
+      桥契约：src/main/bridge/contract.ts —— startInstall()、pickDir()、retry()、quit()、openLogs()、
+              onProgress(cb) 推送 {phase: download|install|configure|launch|done|error, percent, detail}
+      参数：step=detect|ask|download|chooseDir|install|configure|launch，lang=zh|en
+    -->
+    <style>
+      /* ===== 方案 A 设计 token（5 页共用，单文件内联，无外部资源） ===== */
+      :root {
+        color-scheme: dark;
+        /* OpenChamber 深色 token（[D83] 用户拍板：壳页面颜色与 OpenChamber 一致） */
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --success: oklch(77% .17 85);
+        --success-soft: oklch(29% .01 40);
+        --line: oklch(31% .01 35);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        display: grid; place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .card {
+        width: min(560px, 100%);
+        background: var(--card);
+        border-radius: 16px;
+        padding: 40px 36px 30px;
+        text-align: center;
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      .dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 6px; }
+      .dots b { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+      .dots b.on { background: var(--brand); }
+      .dots b.done { background: var(--success); }
+      .stepcap { margin: 0 0 20px; color: var(--text-2); font-size: 13px; }
+
+      .badge {
+        width: 64px; height: 64px; margin: 0 auto 20px;
+        border-radius: 50%; display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+      }
+      .badge svg { width: 32px; height: 32px; }
+      .badge--error { background: var(--error-soft); color: var(--error); }
+      .badge--success { background: var(--success-soft); color: var(--success); }
+
+      h1 { margin: 0 0 10px; font-size: 24px; font-weight: 600; line-height: 1.3; }
+      .lede { margin: 0 auto 20px; max-width: 42ch; color: var(--text-2); }
+
+      .spinner {
+        width: 30px; height: 30px; margin: 4px auto 18px;
+        border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--brand);
+        animation: spin 800ms linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .progress { height: 10px; border-radius: 999px; background: var(--bg); overflow: hidden; margin: 4px 0 8px; }
+      .progress > i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--brand); transition: width 200ms ease; }
+      .progress--indet > i { width: 35%; animation: slide 1.2s ease-in-out infinite; }
+      @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+      .percent { color: var(--text-2); font-size: 13px; margin: 0 0 16px; }
+
+      .btn {
+        display: block; width: 100%; min-height: 44px; padding: 10px 18px;
+        border: 0; border-radius: 10px; cursor: pointer;
+        font: 600 15px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: var(--brand); color: oklch(16% .01 30);
+        transition: background 120ms ease;
+      }
+      .btn:hover { background: var(--brand-hover); }
+      .btn:active { background: var(--brand-active); }
+      .btn[disabled] { opacity: 0.6; cursor: default; }
+      .btn--ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
+      .btn--ghost:hover { background: var(--bg); }
+      .btn + .btn { margin-top: 12px; }
+
+      .btnrow { display: flex; gap: 8px 20px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+      .link {
+        background: none; border: 0; padding: 8px 4px; cursor: pointer;
+        color: var(--brand); font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .link:hover { text-decoration: underline; }
+      .status { min-height: 1.4em; margin: 14px 0 0; color: var(--text-2); font-size: 13px; }
+
+      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+      @media (max-width: 480px) {
+        body { padding: 12px; }
+        .card { padding: 28px 20px 22px; }
+        h1 { font-size: 21px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+        .spinner { animation: none; border-top-color: var(--line); }
+        .progress > i { transition: none; }
+        .progress--indet > i { animation: none; margin-left: 32%; }
+        .btn { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="dots" id="dots" aria-hidden="true"></div>
+      <p class="stepcap" id="stepcap"></p>
+      <div class="badge" id="badge" aria-hidden="true"></div>
+      <h1 id="title"></h1>
+      <p class="lede" id="lede"></p>
+      <div id="body"></div>
+      <div class="btnrow" id="links"></div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const ICONS = {
+        search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="m15.5 15.5 4.5 4.5"/></svg>',
+        download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/></svg>',
+        folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>',
+        box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>',
+        sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2.2" fill="var(--card)"/><circle cx="15" cy="12" r="2.2" fill="var(--card)"/><circle cx="8" cy="18" r="2.2" fill="var(--card)"/></svg>',
+        launch: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4 11 13"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5.5 5.5L20 6.5"/></svg>',
+        bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H13Z"/></svg>',
+      };
+
+      const STR = {
+        zh: {
+          docTitle: '安装向导',
+          preparing: '正在准备', stepOf: (n) => `第 ${n} 步 / 共 6 步`,
+          start: '开始安装', later: '稍后再说', pickDir: '选择文件夹', begin: '开始使用',
+          retryInstall: '重新安装', logs: '查看日志', stuck: '等太久没动静？',
+          preview: '预览模式：未连接壳，按钮不可用。',
+          working: '正在处理…',
+          steps: {
+            detect: { title: '正在检测环境', lede: '先看看你的电脑是否具备安装条件，马上就好。' },
+            ask: { title: '安装 DeepSeek Harness', lede: '接下来会下载并安装 DSH 核心服务。全程跟着向导走即可，大约几分钟，期间需要联网。' },
+            download: { title: '正在下载 DSH', lede: '文件稍大，请保持网络畅通。' },
+            chooseDir: { title: '选择安装目录', lede: 'DSH 会安装到你选择的文件夹里。不确定的话，用默认目录就好。' },
+            install: { title: '正在安装', lede: '正在把文件安装到你的电脑里。' },
+            configure: { title: '正在配置', lede: '快好了，正在写入初始配置。' },
+            launch: { title: '正在启动服务', lede: '最后一步，启动 DSH 服务。' },
+            done: { title: '安装完成！', lede: 'DSH 已经装好并启动，可以开始使用了。' },
+            error: { title: '安装遇到问题', lede: '安装过程中断了。可以重新安装，或先查看日志了解原因。' },
+          },
+        },
+        en: {
+          docTitle: 'Setup',
+          preparing: 'Preparing', stepOf: (n) => `Step ${n} of 6`,
+          start: 'Start installation', later: 'Maybe later', pickDir: 'Choose folder', begin: 'Get started',
+          retryInstall: 'Install again', logs: 'View logs', stuck: 'Taking too long?',
+          preview: 'Preview mode: shell bridge not connected.',
+          working: 'Working…',
+          steps: {
+            detect: { title: 'Checking your environment', lede: 'A quick check that your computer is ready. Just a moment.' },
+            ask: { title: 'Install DeepSeek Harness', lede: 'This wizard downloads and installs the DSH core service. It takes a few minutes and needs an internet connection.' },
+            download: { title: 'Downloading DSH', lede: 'The file is fairly large — please stay online.' },
+            chooseDir: { title: 'Choose an install folder', lede: 'DSH will be installed into the folder you pick. When in doubt, the default is fine.' },
+            install: { title: 'Installing', lede: 'Copying files onto your computer.' },
+            configure: { title: 'Configuring', lede: 'Almost there — writing the initial configuration.' },
+            launch: { title: 'Starting the service', lede: 'Last step: starting the DSH service.' },
+            done: { title: 'All done!', lede: 'DSH is installed and running. You are ready to go.' },
+            error: { title: 'Installation hit a problem', lede: 'The installation was interrupted. You can install again, or check the logs for the cause first.' },
+          },
+        },
+      };
+      const t = STR[lang];
+      document.title = 'deepseekharness — ' + t.docTitle;
+
+      // 步骤序号：detect 为准备阶段不计入；ask..launch = 第 1..6 步（共 6 步）
+      const ORDER = ['ask', 'download', 'chooseDir', 'install', 'configure', 'launch'];
+      const STEP_ICON = {
+        detect: 'search', ask: 'download', download: 'download', chooseDir: 'folder',
+        install: 'box', configure: 'sliders', launch: 'launch', done: 'check', error: 'bolt',
+      };
+      const SPINNER_STEPS = ['detect', 'install', 'configure', 'launch'];
+
+      const shell = window.dshShell || null;
+      const el = {
+        dots: document.getElementById('dots'),
+        stepcap: document.getElementById('stepcap'),
+        badge: document.getElementById('badge'),
+        title: document.getElementById('title'),
+        lede: document.getElementById('lede'),
+        body: document.getElementById('body'),
+        links: document.getElementById('links'),
+        status: document.getElementById('status'),
+      };
+
+      function callShell(fn, busy) {
+        if (!shell) { el.status.textContent = t.preview; return; }
+        if (busy) busy.disabled = true;
+        el.status.textContent = t.working;
+        Promise.resolve(fn())
+          .catch(() => undefined)
+          .finally(() => { if (busy) busy.disabled = false; });
+      }
+
+      function addButton(label, cls, fn) {
+        const b = document.createElement('button');
+        b.className = cls; b.type = 'button'; b.textContent = label;
+        b.addEventListener('click', () => fn(b));
+        el.body.appendChild(b);
+        return b;
+      }
+      function addLink(label, fn) {
+        const b = document.createElement('button');
+        b.className = 'link'; b.type = 'button'; b.textContent = label;
+        b.addEventListener('click', () => callShell(fn));
+        el.links.appendChild(b);
+        return b;
+      }
+
+      let progressBar = null;
+      let progressWrap = null;
+      let percentEl = null;
+
+      function renderStep(step, detail) {
+        const info = t.steps[step] || t.steps.ask;
+        const idx = ORDER.indexOf(step); // -1 = detect / done / error
+
+        // 步骤圆点 + 文案
+        el.dots.innerHTML = '';
+        for (let i = 0; i < ORDER.length; i++) {
+          const d = document.createElement('b');
+          if (step === 'done') d.className = 'done';
+          else if (idx >= 0 && i < idx) d.className = 'done';
+          else if (i === idx) d.className = 'on';
+          el.dots.appendChild(d);
+        }
+        el.stepcap.textContent = step === 'detect' ? t.preparing
+          : step === 'done' || step === 'error' ? ''
+          : idx >= 0 ? t.stepOf(idx + 1) : '';
+
+        // 徽章
+        el.badge.className = 'badge' + (step === 'done' ? ' badge--success' : step === 'error' ? ' badge--error' : '');
+        el.badge.innerHTML = ICONS[STEP_ICON[step] || 'download'];
+
+        el.title.textContent = info.title;
+        el.lede.textContent = step === 'error' ? (detail || info.lede) : info.lede;
+        el.body.innerHTML = '';
+        el.links.innerHTML = '';
+        el.status.textContent = detail && step !== 'error' ? detail : '';
+        progressBar = progressWrap = percentEl = null;
+
+        if (SPINNER_STEPS.includes(step)) {
+          const s = document.createElement('div');
+          s.className = 'spinner';
+          el.body.appendChild(s);
+          const stuck = document.createElement('span');
+          stuck.textContent = t.stuck + ' ';
+          el.links.appendChild(stuck);
+          addLink(t.logs, () => shell.openLogs());
+        } else if (step === 'ask') {
+          addButton(t.start, 'btn', (b) => callShell(() => shell.startInstall(), b));
+          addButton(t.later, 'btn btn--ghost', (b) => callShell(() => shell.quit(), b));
+        } else if (step === 'download') {
+          progressWrap = document.createElement('div');
+          progressWrap.className = 'progress';
+          progressWrap.setAttribute('role', 'progressbar');
+          progressWrap.setAttribute('aria-valuemin', '0');
+          progressWrap.setAttribute('aria-valuemax', '100');
+          progressBar = document.createElement('i');
+          progressWrap.appendChild(progressBar);
+          percentEl = document.createElement('p');
+          percentEl.className = 'percent';
+          el.body.appendChild(progressWrap);
+          el.body.appendChild(percentEl);
+          setProgress(-1);
+        } else if (step === 'chooseDir') {
+          addButton(t.pickDir, 'btn', (b) => callShell(() => shell.pickDir(), b));
+        } else if (step === 'done') {
+          addButton(t.begin, 'btn', (b) => callShell(() => shell.retry(), b));
+        } else if (step === 'error') {
+          addButton(t.retryInstall, 'btn', (b) => callShell(() => shell.startInstall(), b));
+          addLink(t.logs, () => shell.openLogs());
+        }
+      }
+
+      function setProgress(percent) {
+        if (!progressWrap) return;
+        if (typeof percent === 'number' && percent >= 0 && percent <= 100) {
+          progressWrap.classList.remove('progress--indet');
+          progressBar.style.width = percent + '%';
+          progressWrap.setAttribute('aria-valuenow', String(Math.round(percent)));
+          percentEl.textContent = Math.round(percent) + '%';
+        } else {
+          // 无法确定进度：往返动画（reduced-motion 下静态呈现）
+          progressWrap.classList.add('progress--indet');
+          progressWrap.removeAttribute('aria-valuenow');
+          percentEl.textContent = '';
+        }
+      }
+
+      // 初始步骤由 query 决定；之后壳通过 onProgress 推送阶段推进
+      renderStep(params.get('step') || 'ask');
+
+      if (shell && typeof shell.onProgress === 'function') {
+        shell.onProgress((event) => {
+          if (!event || typeof event !== 'object') return;
+          const phase = event.phase;
+          if (phase === 'download') {
+            if (!progressWrap) renderStep('download');
+            setProgress(typeof event.percent === 'number' ? event.percent : -1);
+            if (event.detail) el.status.textContent = event.detail;
+          } else if (['install', 'configure', 'launch', 'done', 'error'].includes(phase)) {
+            renderStep(phase, typeof event.detail === 'string' ? event.detail : '');
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

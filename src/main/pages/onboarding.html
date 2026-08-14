@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      视觉方案 A「气泡蓝」（用户拍板 2026-08-14，[FR-35]/[D76]）
+      桥契约：src/main/bridge/contract.ts —— testConnection({baseUrl, apiKey, model}) → Promise<{ok, message}>、
+              saveConnection({baseUrl, apiKey, model})、retry()
+      参数：step=welcome|connect|demo，lang=zh|en
+      说明：welcome→connect→demo 的纯展示切换由页面内完成（渲染职责）；持久化动作走桥。
+    -->
+    <style>
+      /* ===== 方案 A 设计 token（5 页共用，单文件内联，无外部资源） ===== */
+      :root {
+        color-scheme: dark;
+        /* OpenChamber 深色 token（[D83] 用户拍板：壳页面颜色与 OpenChamber 一致） */
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --success: oklch(77% .17 85);
+        --success-soft: oklch(29% .01 40);
+        --line: oklch(31% .01 35);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        display: grid; place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .card {
+        width: min(560px, 100%);
+        background: var(--card);
+        border-radius: 16px;
+        padding: 40px 36px 30px;
+        text-align: center;
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      .dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 6px; }
+      .dots b { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+      .dots b.on { background: var(--brand); }
+      .dots b.done { background: var(--success); }
+      .stepcap { margin: 0 0 20px; color: var(--text-2); font-size: 13px; }
+
+      .badge {
+        width: 64px; height: 64px; margin: 0 auto 20px;
+        border-radius: 50%; display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+      }
+      .badge svg { width: 32px; height: 32px; }
+
+      h1 { margin: 0 0 10px; font-size: 24px; font-weight: 600; line-height: 1.3; }
+      .lede { margin: 0 auto 20px; max-width: 42ch; color: var(--text-2); }
+
+      /* 表单 */
+      .field { margin: 0 0 16px; text-align: left; }
+      .field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+      .field input {
+        width: 100%; height: 44px; padding: 0 14px;
+        border: 1px solid var(--line); border-radius: 10px;
+        background: oklch(33% .01 40); color: var(--text);
+        font: 400 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .field input:focus { border-color: var(--brand); }
+      .field select {
+        width: 100%; height: 44px; padding: 0 14px;
+        border: 1px solid var(--line); border-radius: 10px;
+        background: oklch(33% .01 40); color: var(--text);
+        font: 400 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .field select:focus { border-color: var(--brand); }
+      .field .link {
+        background: none; border: 0; padding: 6px 0 0; cursor: pointer;
+        color: var(--brand); font: 600 12.5px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .field .hint { margin: 6px 0 0; color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
+      .field .hint code { font-family: Consolas, monospace; font-size: 12px; background: var(--bg); border-radius: 4px; padding: 1px 5px; }
+
+      .msg {
+        display: none; margin: 4px 0 16px; padding: 10px 14px;
+        border-radius: 10px; font-size: 13px; text-align: left; line-height: 1.55;
+      }
+      .msg--ok { display: block; background: var(--success-soft); color: var(--success); }
+      .msg--err { display: block; background: var(--error-soft); color: var(--error); }
+
+      /* 演示提示行 */
+      .tips { margin: 0 auto 22px; max-width: 40ch; padding: 0; list-style: none; text-align: left; }
+      .tips li { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0; }
+      .tips .ico {
+        flex: none; width: 36px; height: 36px; border-radius: 50%;
+        display: grid; place-items: center; background: var(--bg); color: var(--brand);
+      }
+      .tips .ico svg { width: 18px; height: 18px; }
+      .tips p { margin: 0; padding-top: 2px; }
+      .tips b { display: block; font-weight: 600; }
+      .tips span { color: var(--text-2); font-size: 13px; }
+
+      .btn {
+        display: block; width: 100%; min-height: 44px; padding: 10px 18px;
+        border: 0; border-radius: 10px; cursor: pointer;
+        font: 600 15px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: var(--brand); color: oklch(16% .01 30);
+        transition: background 120ms ease;
+      }
+      .btn:hover { background: var(--brand-hover); }
+      .btn:active { background: var(--brand-active); }
+      .btn[disabled] { opacity: 0.6; cursor: default; }
+      .btn--ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
+      .btn--ghost:hover { background: var(--bg); }
+      .btn + .btn { margin-top: 12px; }
+
+      .status { min-height: 1.4em; margin: 14px 0 0; color: var(--text-2); font-size: 13px; }
+
+      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+      @media (max-width: 480px) {
+        body { padding: 12px; }
+        .card { padding: 28px 20px 22px; }
+        h1 { font-size: 21px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+        .btn { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="dots" id="dots" aria-hidden="true"></div>
+      <p class="stepcap" id="stepcap"></p>
+      <div class="badge" id="badge" aria-hidden="true"></div>
+      <h1 id="title"></h1>
+      <p class="lede" id="lede"></p>
+      <div id="body"></div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const ICONS = {
+        chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.5L3 21l2-5.6A8.5 8.5 0 1 1 21 11.5Z"/></svg>',
+        link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+        sparkles: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4Z"/><path d="m19 15 .9 2.1 2.1.9-2.1.9L19 21l-.9-2.1-2.1-.9 2.1-.9Z"/></svg>',
+        file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/></svg>',
+        image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4.5 18 4.5-4.5 3 3 4-4 3.5 3.5"/></svg>',
+      };
+
+      const STR = {
+        zh: {
+          docTitle: '欢迎使用',
+          stepOf: (n) => `第 ${n} 步 / 共 3 步`,
+          next: '下一步', test: '测试连接', save: '保存并继续', begin: '开始使用',
+          testing: '正在测试连接…', saving: '正在保存…',
+          fetchModels: '自动获取模型', fetchingModels: '正在获取模型列表…',
+          fetched: (n) => `获取到 ${n} 个模型，已选第一个，可在下拉框中切换。`,
+          pickModel: '选择模型…', manualModel: '手动输入模型名',
+          errKeyUrl: '请先填写 API 地址与 API 密钥。',
+          preview: '预览模式：未连接壳，按钮不可用。',
+          errUrl: 'API 地址要以 http:// 或 https:// 开头。',
+          errKey: '请填写 API 密钥。',
+          errModel: '请填写模型名。',
+          welcome: {
+            title: '欢迎使用 deepseekharness',
+            lede: '它让 DeepSeek 的 AI 能力常驻在你的电脑里，随时待命。先花一分钟完成接入设置。',
+          },
+          connect: {
+            title: '接入你的 AI 服务',
+            lede: '填写下面三项信息。它们只保存在这台电脑上。',
+            baseUrl: 'API 地址', apiKey: 'API 密钥', model: '模型名',
+            baseUrlHint: 'AI 服务的网址。用 DeepSeek 官方服务就填',
+            apiKeyHint: '在你的 AI 服务商后台生成，通常以 sk- 开头。像密码一样保管，不要发给别人。',
+            modelHint: '想使用的模型名称，例如',
+          },
+          demo: {
+            title: '来试试这两个玩法',
+            lede: '接入完成！下面两招最常用：',
+            tip1b: '拖拽文件到对话窗口', tip1s: '文档、表格、代码，AI 直接帮你读。',
+            tip2b: '粘贴图片直接提问', tip2s: '截图后 Ctrl+V，问什么答什么。',
+          },
+        },
+        en: {
+          docTitle: 'Welcome',
+          stepOf: (n) => `Step ${n} of 3`,
+          next: 'Next', test: 'Test connection', save: 'Save & continue', begin: 'Get started',
+          testing: 'Testing the connection…', saving: 'Saving…',
+          fetchModels: 'Fetch models', fetchingModels: 'Fetching the model list…',
+          fetched: (n) => `Found ${n} models; the first is selected. Switch in the dropdown.`,
+          pickModel: 'Choose a model…', manualModel: 'Type a model name manually',
+          errKeyUrl: 'Please fill in the API address and API key first.',
+          preview: 'Preview mode: shell bridge not connected.',
+          errUrl: 'The API address must start with http:// or https://.',
+          errKey: 'Please enter your API key.',
+          errModel: 'Please enter a model name.',
+          welcome: {
+            title: 'Welcome to deepseekharness',
+            lede: 'It keeps DeepSeek AI at hand on your computer. Take a minute to set up the connection.',
+          },
+          connect: {
+            title: 'Connect your AI service',
+            lede: 'Fill in the three fields below. They are stored only on this computer.',
+            baseUrl: 'API address', apiKey: 'API key', model: 'Model name',
+            baseUrlHint: 'The URL of your AI service. For the official DeepSeek service, use',
+            apiKeyHint: 'Generated in your AI provider console, usually starting with sk-. Keep it secret like a password.',
+            modelHint: 'The model you want to use, e.g.',
+          },
+          demo: {
+            title: 'Try these two tricks',
+            lede: 'All connected! These two are the most handy:',
+            tip1b: 'Drag a file into the chat', tip1s: 'Documents, spreadsheets, code — the AI reads them for you.',
+            tip2b: 'Paste an image and ask', tip2s: 'Take a screenshot, press Ctrl+V, ask anything.',
+          },
+        },
+      };
+      const t = STR[lang];
+      document.title = 'deepseekharness — ' + t.docTitle;
+
+      const shell = window.dshShell || null;
+      const el = {
+        dots: document.getElementById('dots'),
+        stepcap: document.getElementById('stepcap'),
+        badge: document.getElementById('badge'),
+        title: document.getElementById('title'),
+        lede: document.getElementById('lede'),
+        body: document.getElementById('body'),
+        status: document.getElementById('status'),
+      };
+
+      const ORDER = ['welcome', 'connect', 'demo'];
+      const STEP_ICON = { welcome: 'chat', connect: 'link', demo: 'sparkles' };
+
+      function addButton(label, cls, fn) {
+        const b = document.createElement('button');
+        b.className = cls; b.type = 'button'; b.textContent = label;
+        b.addEventListener('click', () => fn(b));
+        el.body.appendChild(b);
+        return b;
+      }
+
+      // 纯展示步骤切换（渲染职责）；同时同步地址栏 query，刷新后仍停留在当前步
+      function goStep(step) {
+        const p = new URLSearchParams(location.search);
+        p.set('step', step);
+        history.replaceState(null, '', location.pathname + '?' + p.toString());
+        renderStep(step);
+      }
+
+      function renderStep(step) {
+        const info = t[step] || t.welcome;
+        const idx = Math.max(0, ORDER.indexOf(step));
+        el.dots.innerHTML = '';
+        for (let i = 0; i < ORDER.length; i++) {
+          const d = document.createElement('b');
+          if (i < idx) d.className = 'done';
+          else if (i === idx) d.className = 'on';
+          el.dots.appendChild(d);
+        }
+        el.stepcap.textContent = t.stepOf(idx + 1);
+        el.badge.innerHTML = ICONS[STEP_ICON[step] || 'chat'];
+        el.title.textContent = info.title;
+        el.lede.textContent = info.lede;
+        el.body.innerHTML = '';
+        el.status.textContent = '';
+
+        if (step === 'connect') renderConnect();
+        else if (step === 'demo') renderDemo();
+        else addButton(t.next, 'btn', () => goStep('connect'));
+      }
+
+      function renderConnect() {
+        const c = t.connect;
+        const form = document.createElement('form');
+        form.noValidate = true;
+
+        function field(id, label, type, hintHTML) {
+          const wrap = document.createElement('div');
+          wrap.className = 'field';
+          const lab = document.createElement('label');
+          lab.htmlFor = id; lab.textContent = label;
+          const input = document.createElement('input');
+          input.id = id; input.type = type; input.autocomplete = 'off'; input.spellcheck = false;
+          const hint = document.createElement('p');
+          hint.className = 'hint'; hint.innerHTML = hintHTML;
+          wrap.appendChild(lab); wrap.appendChild(input); wrap.appendChild(hint);
+          form.appendChild(wrap);
+          return input;
+        }
+
+        const baseUrl = field('f-baseurl', c.baseUrl, 'url', c.baseUrlHint + ' <code>https://api.deepseek.com</code>');
+        const apiKey = field('f-apikey', c.apiKey, 'password', c.apiKeyHint);
+        const model = field('f-model', c.model, 'text', c.modelHint + ' <code>deepseek-chat</code>');
+        model.autocomplete = 'off';
+
+        // 模型选择器（[FR-30.7] 保姆级）：自动获取后变成下拉框可切换；
+        // 端点不支持自动获取时保持手动输入，两者可随时切换
+        const modelSelect = document.createElement('select');
+        modelSelect.id = 'f-model-select';
+        modelSelect.hidden = true;
+        const manualToggle = document.createElement('button');
+        manualToggle.type = 'button';
+        manualToggle.className = 'link';
+        manualToggle.hidden = true;
+        manualToggle.textContent = t.manualModel;
+        if (model.parentElement) {
+          model.parentElement.appendChild(modelSelect);
+          model.parentElement.appendChild(manualToggle);
+        }
+        function useSelect() { model.hidden = true; modelSelect.hidden = false; manualToggle.hidden = false; }
+        function useManual() { model.hidden = false; modelSelect.hidden = true; manualToggle.hidden = true; }
+        manualToggle.addEventListener('click', () => { model.value = ''; useManual(); });
+        // 自动获取到的全部模型（保存时一并登记进 DSH，主界面模型选择器可多选）
+        let fetchedModels = [];
+
+        const msg = document.createElement('div');
+        msg.className = 'msg';
+        msg.setAttribute('role', 'status');
+        msg.setAttribute('aria-live', 'polite');
+        form.appendChild(msg);
+        el.body.appendChild(form);
+
+        function readConfig() {
+          // 下拉选择器可见时取所选模型，否则取手动输入
+          return {
+            baseUrl: baseUrl.value,
+            apiKey: apiKey.value,
+            model: modelSelect.hidden ? model.value : modelSelect.value,
+          };
+        }
+        // 与桥契约 parseConnectionConfig 同口径的本地校验，先拦一道再说人话
+        function validate(cfg) {
+          if (!/^https?:\/\//i.test(cfg.baseUrl.trim())) return t.errUrl;
+          if (cfg.apiKey.trim() === '') return t.errKey;
+          if (cfg.model.trim() === '') return t.errModel;
+          return null;
+        }
+        function showMsg(kind, text) {
+          msg.className = kind ? (kind === 'ok' ? 'msg msg--ok' : 'msg msg--err') : 'msg';
+          msg.textContent = text || '';
+        }
+
+        const testBtn = addButton(t.test, 'btn btn--ghost', (b) => {
+          const cfg = readConfig();
+          const err = validate(cfg);
+          if (err) { showMsg('err', err); return; }
+          if (!shell) { el.status.textContent = t.preview; return; }
+          b.disabled = true; saveBtn.disabled = true;
+          el.status.textContent = t.testing;
+          showMsg(null);
+          Promise.resolve(shell.testConnection(cfg))
+            .then((res) => {
+              if (res && typeof res === 'object') showMsg(res.ok ? 'ok' : 'err', res.message || '');
+            })
+            .catch(() => undefined)
+            .finally(() => { b.disabled = false; saveBtn.disabled = false; el.status.textContent = ''; });
+        });
+
+        const fetchBtn = addButton(t.fetchModels, 'btn btn--ghost', (b) => {
+          const cfg2 = readConfig();
+          if (!/^https?:\/\//i.test(cfg2.baseUrl.trim()) || cfg2.apiKey.trim() === '') {
+            showMsg('err', t.errKeyUrl);
+            return;
+          }
+          if (!shell) { el.status.textContent = t.preview; return; }
+          b.disabled = true;
+          el.status.textContent = t.fetchingModels;
+          showMsg(null);
+          Promise.resolve(shell.discoverModels({ baseUrl: cfg2.baseUrl.trim(), apiKey: cfg2.apiKey.trim() }))
+            .then((res) => {
+              if (res && res.ok && Array.isArray(res.models)) {
+                // 换成真正的下拉选择器：全部模型可选，默认第一个
+                modelSelect.innerHTML = '';
+                const ph = document.createElement('option');
+                ph.value = '';
+                ph.textContent = t.pickModel;
+                modelSelect.appendChild(ph);
+                for (const m of res.models) {
+                  const opt = document.createElement('option');
+                  opt.value = m;
+                  opt.textContent = m;
+                  modelSelect.appendChild(opt);
+                }
+                modelSelect.value = res.models[0] || '';
+                fetchedModels = res.models.slice();
+                useSelect();
+                showMsg('ok', t.fetched(res.models.length));
+              } else {
+                showMsg('err', (res && res.message) || t.errModel);
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => { b.disabled = false; el.status.textContent = ''; });
+        });
+
+        const saveBtn = addButton(t.save, 'btn', (b) => {
+          const cfg = readConfig();
+          const err = validate(cfg);
+          if (err) { showMsg('err', err); return; }
+          if (!shell) { el.status.textContent = t.preview; return; }
+          b.disabled = true; testBtn.disabled = true;
+          el.status.textContent = t.saving;
+          showMsg(null);
+          const payload = fetchedModels.length > 0 ? { ...cfg, models: fetchedModels } : cfg;
+          Promise.resolve(shell.saveConnection(payload))
+            .then((res) => {
+              // 失败留在本步并展示原因（[FR-21.3] 错误即指引），成功才进入演示步
+              if (res && res.ok) { goStep('demo'); return; }
+              if (res && res.message) { showMsg('err', res.message); return; }
+              showMsg('err', t.errModel);
+            })
+            .catch(() => undefined)
+            .finally(() => { b.disabled = false; testBtn.disabled = false; el.status.textContent = ''; });
+        });
+
+        form.addEventListener('submit', (e) => { e.preventDefault(); saveBtn.click(); });
+        baseUrl.focus();
+      }
+
+      function renderDemo() {
+        const d = t.demo;
+        const ul = document.createElement('ul');
+        ul.className = 'tips';
+        [[ICONS.file, d.tip1b, d.tip1s], [ICONS.image, d.tip2b, d.tip2s]].forEach(([ico, b, s]) => {
+          const li = document.createElement('li');
+          const ic = document.createElement('span');
+          ic.className = 'ico'; ic.innerHTML = ico;
+          const p = document.createElement('p');
+          const strong = document.createElement('b'); strong.textContent = b;
+          const sub = document.createElement('span'); sub.textContent = s;
+          p.appendChild(strong); p.appendChild(sub);
+          li.appendChild(ic); li.appendChild(p);
+          ul.appendChild(li);
+        });
+        el.body.appendChild(ul);
+        addButton(t.begin, 'btn', (btn) => {
+          if (!shell) { el.status.textContent = t.preview; return; }
+          btn.disabled = true;
+          Promise.resolve(shell.retry()).catch(() => undefined).finally(() => { btn.disabled = false; });
+        });
+      }
+
+      renderStep(params.get('step') || 'welcome');
+    </script>
+  </body>
+</html>

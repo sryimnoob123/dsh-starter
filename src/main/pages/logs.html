@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      视觉方案 A「气泡蓝」（用户拍板 2026-08-14，[FR-35]/[D76]）
+      桥契约：src/main/bridge/contract.ts —— readLog(kind: 'shell'|'service') → Promise<string>、openLogs()
+      参数：log=shell|service，lang=zh|en
+    -->
+    <style>
+      /* ===== OpenChamber 深色设计 token（[D83] 用户拍板，5 页共用，单文件内联，无外部资源） ===== */
+      :root {
+        color-scheme: dark;
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --success: oklch(77% .17 85);
+        --success-soft: oklch(29% .01 40);
+        --line: oklch(31% .01 35);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        display: grid; place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      /* 日志页是工具页：卡片加宽，其余语言与另 4 页一致 */
+      .card {
+        width: min(720px, 100%);
+        background: var(--card);
+        border-radius: 16px;
+        padding: 32px 32px 26px;
+        text-align: center;
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      .badge {
+        width: 48px; height: 48px; margin: 0 auto 14px;
+        border-radius: 50%; display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+      }
+      .badge svg { width: 24px; height: 24px; }
+
+      h1 { margin: 0 0 16px; font-size: 22px; font-weight: 600; line-height: 1.3; }
+
+      /* 分段 tab */
+      .tabrow { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+      .tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--bg); border-radius: 999px; }
+      .tab {
+        border: 0; background: transparent; cursor: pointer;
+        padding: 8px 18px; border-radius: 999px;
+        color: var(--text-2); font: 600 13px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .tab[aria-selected="true"] { background: var(--brand); color: oklch(16% .01 30); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+
+      .link {
+        background: none; border: 0; padding: 8px 4px; cursor: pointer;
+        color: var(--brand); font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .link:hover { text-decoration: underline; }
+      .link svg { width: 15px; height: 15px; }
+
+      .logview {
+        margin-top: 16px; padding: 14px 16px;
+        background: #f7f9ff; border: 1px solid var(--line); border-radius: 12px;
+        height: min(56vh, 440px); overflow: auto; text-align: left;
+      }
+      .logview pre {
+        margin: 0; color: var(--text);
+        font: 12.5px/1.55 Consolas, monospace;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .logview .muted { color: var(--text-2); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; }
+
+      .note { margin: 14px 0 0; color: var(--text-2); font-size: 12.5px; }
+      .status { min-height: 1.4em; margin: 10px 0 0; color: var(--text-2); font-size: 13px; }
+
+      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+      @media (max-width: 480px) {
+        body { padding: 12px; }
+        .card { padding: 24px 16px 20px; }
+        h1 { font-size: 20px; }
+        .logview { height: 52vh; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></svg>
+      </div>
+      <h1 id="title"></h1>
+      <div class="tabrow">
+        <div class="tabs" role="tablist" id="tabs"></div>
+        <button class="link" id="refresh" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+          <span id="refreshLabel"></span>
+        </button>
+      </div>
+      <div class="logview" id="logview" role="tabpanel" tabindex="0"></div>
+      <p class="note" id="note"></p>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const STR = {
+        zh: {
+          docTitle: '日志', title: '日志',
+          shell: '壳日志', service: '服务日志', refresh: '刷新',
+          loading: '正在读取日志…',
+          empty: '暂无日志。', emptyHint: '服务运行起来后，这里就会有内容。',
+          failed: '读取失败。', retry: '重试', openDir: '打开日志目录',
+          note: '日志可能包含敏感信息，已做脱敏。',
+          preview: '（预览模式：未连接壳）这里会显示日志内容。\n壳日志记录窗口、托盘与启动过程；服务日志记录 DSH 运行细节。',
+        },
+        en: {
+          docTitle: 'Logs', title: 'Logs',
+          shell: 'Shell log', service: 'Service log', refresh: 'Refresh',
+          loading: 'Loading logs…',
+          empty: 'No logs yet.', emptyHint: 'Once the service is running, entries will appear here.',
+          failed: 'Failed to load.', retry: 'Retry', openDir: 'Open log folder',
+          note: 'Logs may contain sensitive information and have been redacted.',
+          preview: '(Preview mode: shell bridge not connected) Log entries appear here.\nThe shell log covers window, tray and startup; the service log covers DSH runtime details.',
+        },
+      };
+      const t = STR[lang];
+      document.title = 'deepseekharness — ' + t.docTitle;
+      document.getElementById('title').textContent = t.title;
+      document.getElementById('refreshLabel').textContent = t.refresh;
+      document.getElementById('note').textContent = t.note;
+
+      const shell = window.dshShell || null;
+      const logview = document.getElementById('logview');
+      const status = document.getElementById('status');
+      const tabsEl = document.getElementById('tabs');
+
+      let kind = params.get('log') === 'service' ? 'service' : 'shell';
+      const KINDS = ['shell', 'service'];
+      const tabBtns = {};
+
+      function setPanel(text, muted) {
+        logview.innerHTML = '';
+        const pre = document.createElement('pre');
+        if (muted) pre.className = 'muted';
+        pre.textContent = text;
+        logview.appendChild(pre);
+      }
+
+      function actionLinks() {
+        const wrap = document.createElement('div');
+        const retry = document.createElement('button');
+        retry.className = 'link'; retry.type = 'button'; retry.textContent = t.retry;
+        retry.addEventListener('click', () => load(kind));
+        wrap.appendChild(retry);
+        if (shell && typeof shell.openLogs === 'function') {
+          const open = document.createElement('button');
+          open.className = 'link'; open.type = 'button'; open.textContent = t.openDir;
+          open.addEventListener('click', () => Promise.resolve(shell.openLogs()).catch(() => undefined));
+          wrap.appendChild(open);
+        }
+        return wrap;
+      }
+
+      function load(k) {
+        status.textContent = '';
+        if (!shell || typeof shell.readLog !== 'function') {
+          setPanel(t.preview, true);
+          return;
+        }
+        setPanel(t.loading, true);
+        Promise.resolve(shell.readLog(k))
+          .then((text) => {
+            if (typeof text === 'string' && text.trim() !== '') setPanel(text, false);
+            else {
+              setPanel(t.empty + ' ' + t.emptyHint, true);
+            }
+          })
+          .catch(() => {
+            logview.innerHTML = '';
+            const pre = document.createElement('pre');
+            pre.className = 'muted';
+            pre.textContent = t.failed;
+            logview.appendChild(pre);
+            logview.appendChild(actionLinks());
+          });
+      }
+
+      function select(k, focus) {
+        kind = k;
+        for (const key of KINDS) {
+          tabBtns[key].setAttribute('aria-selected', key === k ? 'true' : 'false');
+          tabBtns[key].tabIndex = key === k ? 0 : -1;
+        }
+        if (focus) tabBtns[k].focus();
+        const p = new URLSearchParams(location.search);
+        p.set('log', k);
+        history.replaceState(null, '', location.pathname + '?' + p.toString());
+        load(k);
+      }
+
+      for (const k of KINDS) {
+        const b = document.createElement('button');
+        b.className = 'tab'; b.type = 'button'; b.id = 'tab-' + k;
+        b.setAttribute('role', 'tab');
+        b.textContent = t[k];
+        b.addEventListener('click', () => select(k));
+        b.addEventListener('keydown', (e) => {
+          // tab 模式：方向键在页签间移动
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          e.preventDefault();
+          const next = k === 'shell' ? 'service' : 'shell';
+          select(next, true);
+        });
+        tabBtns[k] = b;
+        tabsEl.appendChild(b);
+      }
+      logview.setAttribute('aria-labelledby', 'tab-' + kind);
+
+      document.getElementById('refresh').addEventListener('click', () => load(kind));
+
+      select(kind);
+    </script>
+  </body>
+</html>

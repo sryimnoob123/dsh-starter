@@ -1,0 +1,19 @@
+# electron-builder 配置骨架（架构文档 §7 打包配置切换位，[FR-32.1]）
+# 统一开源版：只出安装包、不含任何授权逻辑（[D70]）。
+
+appId: com.dshdesktop.app
+productName: deepseekharness
+directories:
+  output: dist/installer
+  buildResources: build
+files:
+  - dist/main/**/*
+  - assets/**/*
+  - package.json
+win:
+  target:
+    - nsis
+  icon: assets/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

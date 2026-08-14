@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      视觉方案 A「气泡蓝」（用户拍板 2026-08-14，[FR-35]/[D76]）
+      桥契约：src/main/bridge/contract.ts —— 页面只调用 window.dshShell，不实现。
+      参数：guidance=port-occupied|node-missing|dsh-missing|spawn-crash|config-broken，lang=zh|en
+    -->
+    <style>
+      /* ===== 方案 A 设计 token（5 页共用，单文件内联，无外部资源） ===== */
+      :root {
+        color-scheme: dark;
+        /* OpenChamber 深色 token（[D83] 用户拍板：壳页面颜色与 OpenChamber 一致） */
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --success: oklch(77% .17 85);
+        --success-soft: oklch(29% .01 40);
+        --line: oklch(31% .01 35);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        display: grid; place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .card {
+        width: min(560px, 100%);
+        background: var(--card);
+        border-radius: 16px;
+        padding: 40px 36px 30px;
+        text-align: center;
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      /* 签名元素：气泡徽章 */
+      .badge {
+        width: 64px; height: 64px; margin: 0 auto 20px;
+        border-radius: 50%; display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+      }
+      .badge svg { width: 32px; height: 32px; }
+      .badge--error { background: var(--error-soft); color: var(--error); }
+      .badge--success { background: var(--success-soft); color: var(--success); }
+
+      h1 { margin: 0 0 10px; font-size: 24px; font-weight: 600; line-height: 1.3; }
+      .lede { margin: 0 auto 20px; max-width: 42ch; color: var(--text-2); }
+
+      /* "怎么办"步骤：编号气泡 */
+      .steps { margin: 0 auto 24px; max-width: 40ch; padding: 0; list-style: none; counter-reset: step; text-align: left; }
+      .steps li { position: relative; padding-left: 30px; margin: 10px 0; }
+      .steps li::before {
+        counter-increment: step; content: counter(step);
+        position: absolute; left: 0; top: 0.18em;
+        width: 19px; height: 19px; border-radius: 50%;
+        display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+        font-size: 11.5px; font-weight: 600;
+      }
+
+      .btn {
+        display: block; width: 100%; min-height: 44px; padding: 10px 18px;
+        border: 0; border-radius: 10px; cursor: pointer;
+        font: 600 15px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: var(--brand); color: oklch(16% .01 30);
+        transition: background 120ms ease;
+      }
+      .btn:hover { background: var(--brand-hover); }
+      .btn:active { background: var(--brand-active); }
+      .btn[disabled] { opacity: 0.6; cursor: default; }
+      .btnrow { display: flex; gap: 8px 20px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+      .link {
+        background: none; border: 0; padding: 8px 4px; cursor: pointer;
+        color: var(--brand); font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .link:hover { text-decoration: underline; }
+
+      .mono { font-family: Consolas, monospace; }
+      .status { min-height: 1.4em; margin: 14px 0 0; color: var(--text-2); font-size: 13px; }
+
+      /* 键盘焦点：3px 品牌蓝外环 + 2px 间隙（outline 自动贴合元素圆角） */
+      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+      @media (max-width: 480px) {
+        body { padding: 12px; }
+        .card { padding: 28px 20px 22px; }
+        h1 { font-size: 21px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+        .btn { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge" id="badge" aria-hidden="true"></div>
+      <h1 id="title">deepseekharness</h1>
+      <p class="lede" id="lede"></p>
+      <ol class="steps" id="steps"></ol>
+      <button class="btn" id="primary"></button>
+      <div class="btnrow" id="links"></div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const ICONS = {
+        plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0Z"/><path d="M12 16v5"/></svg>',
+        chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 2v3M14 2v3M10 19v3M14 19v3M2 10h3M2 14h3M19 10h3M19 14h3"/></svg>',
+        download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/></svg>',
+        bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H13Z"/></svg>',
+        sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2.2" fill="var(--card)"/><circle cx="15" cy="12" r="2.2" fill="var(--card)"/><circle cx="8" cy="18" r="2.2" fill="var(--card)"/></svg>',
+      };
+
+      const STR = {
+        zh: {
+          retry: '重试', logs: '查看日志', install: '安装 DeepSeek Harness',
+          starting: '正在启动服务…',
+          preview: '预览模式：未连接壳，按钮不可用。',
+          cases: {
+            'port-occupied': {
+              icon: 'plug', title: '端口被占用',
+              lede: '另一个程序正在使用服务需要的端口，所以服务没能启动。',
+              steps: ['关闭占用该端口的程序，然后点「重试」', '如果反复出现，可以在设置里更换服务端口'],
+            },
+            'node-missing': {
+              icon: 'chip', title: '缺少 Node.js 运行环境',
+              lede: '服务需要 Node.js 22.19 或更高版本才能运行。',
+              steps: ['前往 nodejs.org 下载并安装 LTS 版本', '安装完成后回到这里，点「重试」'],
+            },
+            'dsh-missing': {
+              icon: 'download', title: '还没有安装 DeepSeek Harness',
+              lede: 'DSH 是在幕后工作的核心服务，装上它就能开始使用了。',
+              steps: ['点下方按钮，跟着向导一步步安装', '安装过程需要联网下载，大约几分钟'],
+            },
+            'spawn-crash': {
+              icon: 'bolt', title: '服务启动失败',
+              lede: '服务刚刚尝试启动，但没有成功。',
+              steps: ['点「查看日志」了解具体原因', '处理完原因后点「重试」'],
+            },
+            'config-broken': {
+              icon: 'sliders', title: '配置文件损坏',
+              lede: '保存设置的数据文件可能已损坏。',
+              steps: ['如果你备份过配置，恢复备份后点「重试」', '没有备份？在设置中重置配置即可'],
+            },
+          },
+        },
+        en: {
+          retry: 'Retry', logs: 'View logs', install: 'Install DeepSeek Harness',
+          starting: 'Starting the service…',
+          preview: 'Preview mode: shell bridge not connected.',
+          cases: {
+            'port-occupied': {
+              icon: 'plug', title: 'Port already in use',
+              lede: 'Another program is using the port the service needs, so it could not start.',
+              steps: ['Close the program using this port, then press "Retry"', 'If this keeps happening, change the service port in Settings'],
+            },
+            'node-missing': {
+              icon: 'chip', title: 'Node.js runtime missing',
+              lede: 'The service needs Node.js 22.19 or newer to run.',
+              steps: ['Download and install the LTS release from nodejs.org', 'Come back here and press "Retry"'],
+            },
+            'dsh-missing': {
+              icon: 'download', title: 'DeepSeek Harness is not installed yet',
+              lede: 'DSH is the core service working behind the scenes. Install it and you are ready to go.',
+              steps: ['Press the button below and follow the setup wizard', 'An internet connection is needed for the download'],
+            },
+            'spawn-crash': {
+              icon: 'bolt', title: 'Service failed to start',
+              lede: 'The service tried to start a moment ago, but did not succeed.',
+              steps: ['Press "View logs" to see what went wrong', 'After fixing the cause, press "Retry"'],
+            },
+            'config-broken': {
+              icon: 'sliders', title: 'Configuration file corrupted',
+              lede: 'The file storing your settings may be corrupted.',
+              steps: ['If you have a backup, restore it and press "Retry"', 'No backup? Reset the configuration in Settings'],
+            },
+          },
+        },
+      };
+      const t = STR[lang];
+
+      const key = params.get('guidance') || 'spawn-crash';
+      const c = t.cases[key] || t.cases['spawn-crash'];
+      document.title = 'deepseekharness — ' + c.title;
+
+      const badge = document.getElementById('badge');
+      badge.classList.add(key === 'dsh-missing' ? 'badge--success' : 'badge--error');
+      badge.innerHTML = ICONS[c.icon];
+      document.getElementById('title').textContent = c.title;
+      document.getElementById('lede').textContent = c.lede;
+      const stepsEl = document.getElementById('steps');
+      for (const s of c.steps) {
+        const li = document.createElement('li');
+        li.textContent = s;
+        stepsEl.appendChild(li);
+      }
+
+      const shell = window.dshShell || null;
+      const status = document.getElementById('status');
+      const primary = document.getElementById('primary');
+      const links = document.getElementById('links');
+      const isInstall = key === 'dsh-missing';
+
+      primary.textContent = isInstall ? t.install : t.retry;
+      primary.addEventListener('click', () => {
+        if (!shell) { status.textContent = t.preview; return; }
+        primary.disabled = true;
+        status.textContent = t.starting;
+        const p = isInstall ? shell.goInstall() : shell.retry();
+        Promise.resolve(p).catch(() => undefined).finally(() => { primary.disabled = false; });
+      });
+
+      function addLink(label, fn) {
+        const b = document.createElement('button');
+        b.className = 'link';
+        b.type = 'button';
+        b.textContent = label;
+        b.addEventListener('click', () => {
+          if (!shell) { status.textContent = t.preview; return; }
+          Promise.resolve(fn()).catch(() => undefined);
+        });
+        links.appendChild(b);
+      }
+      if (isInstall) addLink(t.retry, () => shell.retry());
+      addLink(t.logs, () => shell.openLogs());
+
+      // 壳推来的状态一句话（可选订阅，契约：onServiceStatus({status, detail})）
+      if (shell && typeof shell.onServiceStatus === 'function') {
+        shell.onServiceStatus((event) => {
+          if (event && typeof event.detail === 'string' && event.detail) status.textContent = event.detail;
+        });
+      }
+    </script>
+  </body>
+</html>
