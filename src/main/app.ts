@@ -149,6 +149,30 @@ function syncDesktopTheme(port: number): void {
     .catch((error: unknown) => writeLog('shell', `theme sync failed: ${String(error)}`));
 }
 
+/**
+ * 主题单一事实源 = DSH 官方"外观"设置（用户拍板：设置放官方设置里）：
+ * 启动时读取 DSH 的 ui-theme 偏好并记住，壳的窗口底色/图标/本地页全部跟随它；
+ * 用户在官方设置里改主题 → 下次启动壳自动采用（无需壳自己的外观选项）。
+ */
+function adoptThemeFromDsh(port: number): void {
+  callRpc({ port, method: 'settings.describe', payload: { ns: 'ui-theme' } })
+    .then((value) => {
+      const described = value as { value?: { preference?: unknown } } | null | undefined;
+      const preference = described?.value?.preference;
+      if (preference === 'dark' || preference === 'light' || preference === 'system') {
+        const store = getStore();
+        const config = store.load();
+        if (config.uiTheme !== preference) {
+          config.uiTheme = preference;
+          store.save(config);
+          applyDesktopTheme();
+          writeLog('shell', `theme adopted from DSH: ${preference}`);
+        }
+      }
+    })
+    .catch(() => undefined); // 读不到就保持壳自己的配置，不阻塞启动
+}
+
 // ---------------------------------------------------------------------------
 // 日志落盘（§8.3：壳日志 + 服务 stdout/stderr；§8.5：凭据脱敏）
 // ---------------------------------------------------------------------------
@@ -533,7 +557,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
       }
       emitServiceStatus(win, 'running', `已连接本机服务（端口 ${port}）`);
       subscribeEvents(port);
-      syncDesktopTheme(port);
+      // 主题单一事实源 = DSH 官方"外观"设置：启动时读取并采用，壳（窗口底色/图标/本地页）跟随
+      adoptThemeFromDsh(port);
       updateTrayState();
       return;
     }
@@ -625,7 +650,7 @@ async function startShell(win: BrowserWindow): Promise<void> {
     }
     emitServiceStatus(win, 'running', `服务已启动（端口 ${port}）`);
     subscribeEvents(port);
-    syncDesktopTheme(port);
+    adoptThemeFromDsh(port);
     updateTrayState();
   } catch (error) {
     writeLog('shell', `spawn failed: ${String(error)}`);

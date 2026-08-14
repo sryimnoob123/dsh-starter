@@ -58,6 +58,7 @@
         min-height: 300px;
       }
       .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+      .head .head-left { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
       h1 { margin: 0; font-size: 22px; font-weight: 600; }
       .hint { margin: 0; color: var(--text-2); font-size: 13px; }
       .list { list-style: none; margin: 0; padding: 0; flex: 1; overflow: auto; }
@@ -79,6 +80,8 @@
       }
       .btn:hover { background: var(--brand-hover); }
       .btn:active { background: var(--brand-active); }
+      .btn--ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
+      .btn--ghost:hover { background: var(--bg); }
       .btn[disabled] { opacity: 0.55; cursor: default; }
       .status { min-height: 1.4em; margin: 12px 0 0; color: var(--text-2); font-size: 13px; }
       .status.err { color: var(--error); }
@@ -89,8 +92,11 @@
   <body>
     <main class="card">
       <div class="head">
-        <h1 id="title"></h1>
-        <p class="hint" id="hint"></p>
+        <div class="head-left">
+          <h1 id="title"></h1>
+          <p class="hint" id="hint"></p>
+        </div>
+        <button class="btn btn--ghost" id="backBtn" type="button"></button>
       </div>
       <ul class="list" id="list"></ul>
       <p class="empty" id="empty" hidden></p>
@@ -116,6 +122,7 @@
           cleared: '已清空。',
           failed: '操作失败：',
           preview: '预览模式：未连接壳。',
+          back: '返回对话',
         },
         en: {
           docTitle: 'Notifications',
@@ -126,6 +133,7 @@
           cleared: 'Cleared.',
           failed: 'Failed: ',
           preview: 'Preview mode: no shell connected.',
+          back: 'Back to chat',
         },
       };
       const t = STR[lang];
@@ -141,6 +149,11 @@
       $('hint').textContent = t.hint;
       $('empty').textContent = t.empty;
       clearBtn.textContent = t.clear;
+      const backBtn = $('backBtn');
+      backBtn.textContent = t.back;
+      backBtn.addEventListener('click', () => {
+        if (window.dshShell && typeof window.dshShell.openMain === 'function') window.dshShell.openMain();
+      });
 
       function setStatus(text, isErr) {
         status.textContent = text;

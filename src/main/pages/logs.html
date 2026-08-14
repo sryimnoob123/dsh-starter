@@ -72,6 +72,9 @@
         background: var(--bg); color: var(--brand);
       }
       .badge svg { width: 24px; height: 24px; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+      .topbar .badge { margin: 0; }
+      .topbar h1 { margin: 0; }
 
       h1 { margin: 0 0 16px; font-size: 22px; font-weight: 600; line-height: 1.3; }
 
@@ -123,10 +126,13 @@
   </head>
   <body>
     <main class="card">
-      <div class="badge" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></svg>
+      <div class="topbar">
+        <div class="badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></svg>
+        </div>
+        <h1 id="title"></h1>
+        <button class="link" id="backBtn" type="button"></button>
       </div>
-      <h1 id="title"></h1>
       <div class="tabrow">
         <div class="tabs" role="tablist" id="tabs"></div>
         <button class="link" id="refresh" type="button">
@@ -154,6 +160,7 @@
           failed: '读取失败。', retry: '重试', openDir: '打开日志目录',
           note: '日志可能包含敏感信息，已做脱敏。',
           preview: '（预览模式：未连接壳）这里会显示日志内容。\n壳日志记录窗口、托盘与启动过程；服务日志记录 DSH 运行细节。',
+          back: '返回对话',
         },
         en: {
           docTitle: 'Logs', title: 'Logs',
@@ -163,6 +170,7 @@
           failed: 'Failed to load.', retry: 'Retry', openDir: 'Open log folder',
           note: 'Logs may contain sensitive information and have been redacted.',
           preview: '(Preview mode: shell bridge not connected) Log entries appear here.\nThe shell log covers window, tray and startup; the service log covers DSH runtime details.',
+          back: 'Back to chat',
         },
       };
       const t = STR[lang];
@@ -170,6 +178,11 @@
       document.getElementById('title').textContent = t.title;
       document.getElementById('refreshLabel').textContent = t.refresh;
       document.getElementById('note').textContent = t.note;
+      const backBtn = document.getElementById('backBtn');
+      backBtn.textContent = t.back;
+      backBtn.addEventListener('click', () => {
+        if (window.dshShell && typeof window.dshShell.openMain === 'function') window.dshShell.openMain();
+      });
 
       const shell = window.dshShell || null;
       const logview = document.getElementById('logview');

@@ -52,12 +52,18 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
 export const DSH_HEADER_DRAG_SCRIPT = `(function () {
   function apply() {
     var h = document.querySelector('header');
-    if (!h || h.dataset.dshDrag === '1') return;
-    h.dataset.dshDrag = '1';
-    h.style.setProperty('-webkit-app-region', 'drag');
-    var pr = parseInt(h.style.paddingRight || window.getComputedStyle(h).paddingRight, 10) || 0;
-    h.style.setProperty('padding-right', Math.max(pr, 140) + 'px');
-    h.querySelectorAll('button,[role=button],a,input,select,textarea').forEach(function (el) {
+    if (!h) return;
+    if (h.dataset.dshDrag !== '1') {
+      h.dataset.dshDrag = '1';
+      h.style.setProperty('-webkit-app-region', 'drag');
+      var pr = parseInt(h.style.paddingRight || window.getComputedStyle(h).paddingRight, 10) || 0;
+      h.style.setProperty('padding-right', Math.max(pr, 140) + 'px');
+    }
+    // 每次重渲染都补一遍 no-drag（header 内交互元素会被 DSH 重渲染替换）：
+    // 含 role=tab/role=tablist——不列出的话对话/轨迹标签会被拖拽区吞掉点击
+    h.querySelectorAll(
+      'button,a,input,select,textarea,[role=button],[role=tab],[role=tablist],[contenteditable="true"]',
+    ).forEach(function (el) {
       el.style.setProperty('-webkit-app-region', 'no-drag');
     });
   }
