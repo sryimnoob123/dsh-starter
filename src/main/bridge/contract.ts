@@ -87,6 +87,7 @@ export function parsePromptSettingsInput(raw: unknown): {
   if (typeof obj.includeHarnessIdentity !== 'boolean') return null;
   if (typeof obj.persona !== 'string' || obj.persona.length > 20_000) return null;
   if (typeof obj.globalPrompt !== 'string' || Buffer.byteLength(obj.globalPrompt, 'utf8') > 1_000_000) {
+    // 注：Buffer 依赖 Node 全局（仅主进程/测试导入本文件，preload 不引用它）
     return null;
   }
   if (typeof obj.restart !== 'boolean') return null;

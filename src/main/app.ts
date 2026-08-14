@@ -28,6 +28,7 @@ import { DESKTOP_CSS, TITLEBAR_SCRIPT } from './window/desktopChrome.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
 import { normalizeWindowBounds } from './window/bounds.js';
 import { buildCompactPayload, describeCompactFeedback, parseCurrentSessionId } from './commands/compact.js';
+import { isAllowedNavigationUrl } from './window/navigation.js';
 import {
   buildDesktopPatchYaml,
   globalAgentsPath,
@@ -318,8 +319,10 @@ async function runCompactCommand(win: BrowserWindow): Promise<void> {
     const value = await callRpc({ port, method: 'session.prompt', payload: buildCompactPayload(sessionId) });
     writeLog('shell', `compact command accepted for ${sessionId}`);
     const text = describeCompactFeedback(value);
+    // 已知脆弱点（评审确认）：'No compactable history yet.' 是 DSH command-compact
+    // 的英文文案（未版本化的提示文字），仅做中文提示优化；匹配不上就原样展示或给通用文案
     const body =
-      text === 'No compactable history yet.'
+      typeof text === 'string' && text.toLowerCase().includes('no compactable history')
         ? '还没有可压缩的历史。'
         : text
           ? `压缩完成：${text}`
@@ -536,6 +539,11 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     mainWindow?.hide();
   });
+  // 导航护栏：文件拖放由 DSH 页面自己的 drop 区处理；拖到区外若被当导航会
+  // 离开壳面，这里拦住（只放行 127.0.0.1；loadFile/loadURL 程序化加载不受影响）
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedNavigationUrl(url)) event.preventDefault();
+  });
   // 右键菜单：Electron 默认不提供原生右键菜单，这里补上复制/粘贴/剪切/全选/撤销重做
   win.webContents.on('context-menu', (_event, params) => {
     const template: Electron.MenuItemConstructorOptions[] = [];
@@ -641,6 +649,13 @@ async function restartService(win: BrowserWindow): Promise<void> {
       child.once('exit', done);
       setTimeout(done, 2000);
     });
+  }
+  // 端口释放确认（评审建议）：退出事件后最多再等 5s，让端口真正空闲，
+  // 减少 startShell 把刚杀掉的端口误判为占用；仍未空闲时走正常探测分流
+  const port = getStore().load().port ?? 3080;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if ((await probePort(port)) === 'free') break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
   await startShell(win);
 }
