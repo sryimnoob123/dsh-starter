@@ -353,7 +353,8 @@
         try {
           const result = await shell.savePromptSettings(buildPayload(restart));
           if (result && result.ok) {
-            setStatus(result.restarting ? t.savedRestart : t.saved, false);
+            // 优先展示壳返回的准确结果（复用模式下与 managed 文案不同），缺省才用本地文案
+            setStatus(result.restarting ? t.savedRestart : (result.message || t.saved), false);
             if (result.restarting) {
               // 重启会导航回主界面；页面即将卸载
               el.saveBtn.disabled = true;

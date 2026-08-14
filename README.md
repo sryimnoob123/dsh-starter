@@ -22,7 +22,7 @@ The shell only owns four things: **window**, **tray**, **notifications**, and **
 
 ### Status
 
-Early stage (MVP). The shell core is implemented and covered by **252 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
+Early stage (MVP). The shell core is implemented and covered by **263 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
 
 ### Features
 
@@ -31,6 +31,7 @@ Early stage (MVP). The shell core is implemented and covered by **252 tests**. S
 - 📌 System tray menu (open / stop service / view logs / quit)
 - ⚡ Quick actions — one-click "Compact context" tray shortcut for the current session
 - 🔔 Desktop notifications for finished / failed jobs
+- 🐶 Stall watchdog — system notification when a job shows no activity for 5 minutes (independent of the agent itself)
 - 🔄 Automatic updates (`electron-updater`)
 - 🔌 Smart port detection — reuse a running service, ask on conflict
 - 🚀 First-run onboarding wizard (model & connection config)
@@ -78,7 +79,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 ### 当前进度
 
-早期阶段（MVP）。壳核心已完成，并有 **252 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
+早期阶段（MVP）。壳核心已完成，并有 **263 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
 
 ### 功能
 
@@ -87,6 +88,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 - 📌 系统托盘菜单（打开 / 停止服务 / 查看日志 / 退出）
 - ⚡ 快捷操作 —— 托盘一键"压缩上下文"（当前会话）
 - 🔔 任务完成 / 失败桌面通知
+- 🐶 卡住看门狗 —— 任务 5 分钟无活动时系统通知（独立于 agent 本身）
 - 🔄 自动更新（`electron-updater`）
 - 🔌 智能端口探测（复用已运行服务，端口冲突时询问）
 - 🚀 首启向导（模型与连接配置）

@@ -30,6 +30,14 @@ import { normalizeWindowBounds } from './window/bounds.js';
 import { buildCompactPayload, describeCompactFeedback, parseCurrentSessionId } from './commands/compact.js';
 import { isAllowedNavigationUrl } from './window/navigation.js';
 import {
+  freshTracker,
+  markSent,
+  stallDecision,
+  updateTracker,
+  type StallFrame,
+  type StallTrackerState,
+} from './watchdog/stall.js';
+import {
   buildDesktopPatchYaml,
   globalAgentsPath,
   normalizePromptConfig,
@@ -238,9 +246,22 @@ function subscribeEvents(port: number): void {
   eventSocket = new WebSocket(`ws://127.0.0.1:${port}/api/events.mux`);
   const jobState = new Map<string, JobStatus>();
 
+  // [FR-17.8] 壳侧独立卡住看门狗：帧流即活动；有任务且 5 分钟无帧 → 一级提醒，
+  // 3 分钟后二级升级；断线时清空状态（壳观察不到 = 不误报，重连后重新计时）
+  const trackFrame = (frame: MuxFrame): void => {
+    const sessionId = (frame as { sessionId?: string }).sessionId;
+    if (typeof sessionId !== 'string') return;
+    const now = Date.now();
+    const prev = stallTrackersGlobal.get(sessionId) ?? freshTracker(now);
+    const next = updateTracker(prev, frame as StallFrame, now);
+    if (next.running) stallTrackersGlobal.set(sessionId, next);
+    else stallTrackersGlobal.delete(sessionId); // 任务终态：回收，防 Map 无限增长
+  };
+
   eventSocket.on('message', (data) => {
     try {
       const frame = JSON.parse(String(data)) as MuxFrame;
+      trackFrame(frame);
       if (frame.type === 'session/jobs') {
         const terminal = diffJobs(jobState, frame);
         for (const job of terminal) {
@@ -260,11 +281,41 @@ function subscribeEvents(port: number): void {
   });
 
   eventSocket.on('close', () => {
+    stallTrackersGlobal.clear();
     // 断开 → 2s 后自动重连（浏览器同款指数退避的简化，[FR-25.5]）
     setTimeout(() => {
       if (reuseMode || serviceProcess) subscribeEvents(port);
     }, 2000);
   });
+
+  ensureStallWatchdog();
+}
+
+/** [FR-17.8] 每会话活动状态（订阅闭包与巡检共用；模块级唯一实例） */
+const stallTrackersGlobal = new Map<string, StallTrackerState>();
+
+/** 看门狗巡检（单例定时器，30s 判定一次；不随重连重复创建） */
+let stallTimer: NodeJS.Timeout | null = null;
+function ensureStallWatchdog(): void {
+  if (stallTimer) return;
+  stallTimer = setInterval(() => {
+    void checkStalls();
+  }, 30_000);
+}
+
+function checkStalls(): void {
+  const now = Date.now();
+  for (const [sessionId, state] of stallTrackersGlobal) {
+    const decision = stallDecision(state, now);
+    if (decision.kind === 'none') continue;
+    stallTrackersGlobal.set(sessionId, markSent(state, decision.level));
+    if (getStore().load().notifications?.result === false) continue;
+    showActionNotice(
+      decision.level === 1
+        ? '任务可能卡住：会话已 5 分钟无活动，先看看是不是正常的长任务。'
+        : '会话已 8 分钟无活动，请到窗口查看是否卡住。',
+    );
+  }
 }
 
 function notify(candidate: { type: 'result'; sessionId: string; title: string }): void {
