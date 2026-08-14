@@ -92,6 +92,17 @@
       }
       textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
       textarea[disabled] { opacity: 0.55; }
+      select {
+        width: 100%;
+        background: var(--input-bg);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font: 400 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+        margin-bottom: 10px;
+      }
+      select:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
 
       label.toggle { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
       label.toggle input { margin-top: 4px; accent-color: var(--brand); }
@@ -143,6 +154,18 @@
         <p class="hint" id="gGlobalHint"></p>
         <p class="path" id="globalPath"></p>
         <textarea id="globalPrompt" rows="10" spellcheck="false" placeholder=""></textarea>
+      </section>
+
+      <section class="group" id="groupProject">
+        <h2><span id="gProjectTitle"></span><span class="tag" id="gProjectTag"></span></h2>
+        <p class="hint" id="gProjectHint"></p>
+        <select id="workspaceSelect" aria-label="workspace"></select>
+        <p class="path" id="projectPath"></p>
+        <textarea id="projectPrompt" rows="8" spellcheck="false"></textarea>
+        <div class="row">
+          <button class="btn" id="projectSaveBtn" type="button"></button>
+        </div>
+        <p class="status" id="projectStatus" role="status" aria-live="polite"></p>
       </section>
 
       <section class="group" id="groupIdentity">
@@ -208,6 +231,15 @@
           gGlobalHint:
             '这个文件就是 DSH 每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容；DSH 检测到文件变化后自动同步到会话。',
           gGlobalPlaceholder: '在这里写全局规则，例如：\n\n- 用中文回答\n- 先想清楚再动手',
+          gProjectTitle: '项目级指令',
+          gProjectTag: '工作区 AGENTS.md',
+          gProjectHint:
+            '每个工作区自己的规则文件（DSH 同时认 AGENTS.md 与 CLAUDE.md，这里编辑 AGENTS.md）。保存后该工作区的会话自动同步。',
+          projectSave: '保存到该工作区',
+          projectLoading: '正在读取工作区…',
+          projectNone: '没有工作区，或服务未在运行。',
+          projectSaved: '已保存。',
+          projectFailed: '保存失败：',
           gIdentityTitle: '身份注入',
           gIdentityTag: '默认关闭',
           gIdentityHint:
@@ -246,6 +278,15 @@
           gGlobalHint:
             'This file is the global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; DSH picks up changes automatically.',
           gGlobalPlaceholder: 'Write global rules here, e.g.:\n\n- Answer in Chinese\n- Think before acting',
+          gProjectTitle: 'Project instructions',
+          gProjectTag: 'workspace AGENTS.md',
+          gProjectHint:
+            'Per-workspace rules file (DSH reads both AGENTS.md and CLAUDE.md; this panel edits AGENTS.md). Sessions in that workspace sync automatically after saving.',
+          projectSave: 'Save to workspace',
+          projectLoading: 'Loading workspaces…',
+          projectNone: 'No workspaces, or the service is not running.',
+          projectSaved: 'Saved.',
+          projectFailed: 'Save failed: ',
           gIdentityTitle: 'Identity injection',
           gIdentityTag: 'off by default',
           gIdentityHint:
@@ -281,6 +322,9 @@
         title: $('title'), lede: $('lede'), reuseBanner: $('reuseBanner'),
         gGlobalTitle: $('gGlobalTitle'), gGlobalTag: $('gGlobalTag'), gGlobalHint: $('gGlobalHint'),
         globalPath: $('globalPath'), globalPrompt: $('globalPrompt'),
+        gProjectTitle: $('gProjectTitle'), gProjectTag: $('gProjectTag'), gProjectHint: $('gProjectHint'),
+        workspaceSelect: $('workspaceSelect'), projectPath: $('projectPath'), projectPrompt: $('projectPrompt'),
+        projectSaveBtn: $('projectSaveBtn'), projectStatus: $('projectStatus'),
         gIdentityTitle: $('gIdentityTitle'), gIdentityTag: $('gIdentityTag'), gIdentityHint: $('gIdentityHint'),
         gIdentityLabel: $('gIdentityLabel'), identityToggle: $('identityToggle'), identityReset: $('identityReset'),
         gPersonaTitle: $('gPersonaTitle'), gPersonaTag: $('gPersonaTag'), gPersonaHint: $('gPersonaHint'),
@@ -299,6 +343,10 @@
         el.gGlobalTag.textContent = t.gGlobalTag;
         el.gGlobalHint.textContent = t.gGlobalHint;
         el.globalPrompt.placeholder = t.gGlobalPlaceholder;
+        el.gProjectTitle.textContent = t.gProjectTitle;
+        el.gProjectTag.textContent = t.gProjectTag;
+        el.gProjectHint.textContent = t.gProjectHint;
+        el.projectSaveBtn.textContent = t.projectSave;
         el.gIdentityTitle.textContent = t.gIdentityTitle;
         el.gIdentityTag.textContent = t.gIdentityTag;
         el.gIdentityHint.textContent = t.gIdentityHint;
@@ -372,6 +420,64 @@
       el.saveRestartBtn.addEventListener('click', () => save(true));
       el.identityReset.addEventListener('click', () => { el.identityToggle.checked = false; });
       el.personaReset.addEventListener('click', () => { el.persona.value = WEB_BASE_PERSONA; });
+
+      // ---- 项目级指令（[FR-16.7] P1）：工作区下拉 + 各自 AGENTS.md ----
+      let projectRows = [];
+
+      function renderWorkspace(row) {
+        el.workspaceSelect.value = row.workspaceId;
+        el.projectPath.textContent = row.path ? row.path + '/AGENTS.md' : '';
+        el.projectPrompt.value = row.content || '';
+      }
+
+      function setProjectStatus(text, isErr) {
+        el.projectStatus.textContent = text;
+        el.projectStatus.className = 'status' + (isErr ? ' err' : '');
+      }
+
+      async function loadProjectInstructions() {
+        const shell = window.dshShell;
+        if (!shell || typeof shell.listProjectInstructions !== 'function') return;
+        setProjectStatus(t.projectLoading, false);
+        try {
+          const result = await shell.listProjectInstructions();
+          if (!result || !result.ok) {
+            setProjectStatus(result && result.message ? result.message : t.projectNone, true);
+            return;
+          }
+          projectRows = result.items || [];
+          el.workspaceSelect.innerHTML = '';
+          for (const row of projectRows) {
+            const opt = document.createElement('option');
+            opt.value = row.workspaceId;
+            opt.textContent = row.title || row.path;
+            el.workspaceSelect.appendChild(opt);
+          }
+          if (projectRows.length > 0) {
+            renderWorkspace(projectRows[0]);
+            setProjectStatus('', false);
+          } else {
+            setProjectStatus(t.projectNone, true);
+          }
+        } catch (error) {
+          setProjectStatus(t.projectFailed + String(error), true);
+        }
+      }
+
+      el.workspaceSelect.addEventListener('change', () => {
+        const row = projectRows.find((r) => r.workspaceId === el.workspaceSelect.value);
+        if (row) renderWorkspace(row);
+      });
+
+      el.projectSaveBtn.addEventListener('click', async () => {
+        const shell = window.dshShell;
+        if (!shell) return;
+        const result = await shell.saveProjectInstruction({
+          workspaceId: el.workspaceSelect.value,
+          content: el.projectPrompt.value,
+        });
+        setProjectStatus(result.ok ? t.projectSaved : t.projectFailed + (result.message || ''), !result.ok);
+      });
 
       async function init() {
         const shell = window.dshShell;

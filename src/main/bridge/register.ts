@@ -5,11 +5,13 @@ import {
   parseConnectionConfig,
   parseLogKind,
   parsePort,
+  parseProjectInstructionInput,
   parsePromptSettingsInput,
   parseWindowAction,
   type ConnectionConfig,
   type ConnectionResult,
   type InstallProgressEvent,
+  type ListProjectInstructionsResult,
   type NotificationHistoryEntry,
   type PromptSettingsState,
   type SavePromptSettingsResult,
@@ -53,6 +55,10 @@ export interface ShellOps {
   readNotifications(): NotificationHistoryEntry[];
   /** 通知历史：清空 */
   clearNotifications(): void;
+  /** 项目级指令（[FR-16.7] P1）：workspace.list 现查工作区 + 读各自 AGENTS.md */
+  listProjectInstructions(): Promise<ListProjectInstructionsResult>;
+  /** 项目级指令：按 workspaceId 现查路径并写 <path>/AGENTS.md（不接页面路径，防任意写） */
+  saveProjectInstruction(input: { workspaceId: string; content: string }): Promise<{ ok: boolean; message: string }>;
   /** 窗口控制（自绘标题栏 [D84]：minimize / toggle-maximize / close=缩托盘） */
   windowControl(action: WindowAction): void;
 }
@@ -119,6 +125,14 @@ export function registerBridge(ops: ShellOps): void {
   ipcMain.handle(BRIDGE_API.readNotifications, () => ops.readNotifications());
 
   ipcMain.handle(BRIDGE_API.clearNotifications, () => ops.clearNotifications());
+
+  ipcMain.handle(BRIDGE_API.listProjectInstructions, () => ops.listProjectInstructions());
+
+  ipcMain.handle(BRIDGE_API.saveProjectInstruction, (_event, raw: unknown) => {
+    const input = parseProjectInstructionInput(raw);
+    if (!input) return { ok: false, message: '保存失败：内容非法或超出长度上限（≤ 1MB）。' };
+    return ops.saveProjectInstruction(input);
+  });
 
   ipcMain.handle(BRIDGE_API.windowControl, (_event, raw: unknown) => {
     const action = parseWindowAction(raw);

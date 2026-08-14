@@ -14,6 +14,33 @@ export interface NotificationHistoryEntry {
   body: string;
 }
 
+/** 项目级指令行（[FR-16.7] P1：工作区 AGENTS.md 编辑器） */
+export interface ProjectInstructionRow {
+  workspaceId: string;
+  title: string;
+  path: string;
+  /** 该工作区 AGENTS.md 当前内容；不存在为空串 */
+  content: string;
+}
+
+export type ListProjectInstructionsResult =
+  | { ok: true; items: ProjectInstructionRow[] }
+  | { ok: false; message: string };
+
+/**
+ * 校验项目级指令保存载荷：workspaceId 仅作查找键（路径由服务端现查），
+ * content 上限 1MB（对齐 agent-instructions 单文件上限）。
+ */
+export function parseProjectInstructionInput(raw: unknown): { workspaceId: string; content: string } | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.workspaceId !== 'string' || obj.workspaceId.trim() === '' || obj.workspaceId.length > 200) {
+    return null;
+  }
+  if (typeof obj.content !== 'string' || Buffer.byteLength(obj.content, 'utf8') > 1_000_000) return null;
+  return { workspaceId: obj.workspaceId.trim(), content: obj.content };
+}
+
 /** 日志类型（logs.html 的 log= 参数与 readLog 入参） */
 export type LogKind = 'shell' | 'service';
 
@@ -144,6 +171,9 @@ export const BRIDGE_API = {
   // ---- 通知历史（[D31]） ----
   readNotifications: 'dsh:readNotifications',
   clearNotifications: 'dsh:clearNotifications',
+  // ---- 项目级指令（[FR-16.7] P1） ----
+  listProjectInstructions: 'dsh:listProjectInstructions',
+  saveProjectInstruction: 'dsh:saveProjectInstruction',
   // ---- 事件订阅（壳 → 页面） ----
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',

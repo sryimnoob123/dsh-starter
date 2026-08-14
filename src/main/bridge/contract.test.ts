@@ -5,18 +5,20 @@ import {
   parseInstallPhase,
   parseLogKind,
   parsePort,
+  parseProjectInstructionInput,
   parsePromptSettingsInput,
   parseWindowAction,
 } from './contract.js';
 
 describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D79] 外包包 §2）', () => {
-  it('锁定 18 个方法名', () => {
+  it('锁定 20 个方法名', () => {
     expect(Object.keys(BRIDGE_API).sort()).toEqual([
       'choosePort',
       'clearNotifications',
       'discoverModels',
       'getPromptSettings',
       'goInstall',
+      'listProjectInstructions',
       'onProgress',
       'onServiceStatus',
       'openLogs',
@@ -26,6 +28,7 @@ describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D
       'readNotifications',
       'retry',
       'saveConnection',
+      'saveProjectInstruction',
       'savePromptSettings',
       'startInstall',
       'testConnection',
@@ -149,5 +152,26 @@ describe('parsePromptSettingsInput（设置页保存载荷，[FR-16]/[FR-4.3]）
     [{ ...valid, notifyResult: 'yes' }],
   ])('拒绝非法载荷 %o', (v) => {
     expect(parsePromptSettingsInput(v)).toBeNull();
+  });
+});
+
+describe('parseProjectInstructionInput（项目级指令保存载荷，[FR-16.7] P1）', () => {
+  it('接受合法载荷并去空白 workspaceId', () => {
+    expect(parseProjectInstructionInput({ workspaceId: ' w1 ', content: '# rules' })).toEqual({
+      workspaceId: 'w1',
+      content: '# rules',
+    });
+  });
+
+  it.each([
+    [null],
+    [{ workspaceId: '', content: 'x' }],
+    [{ workspaceId: 'w'.repeat(201), content: 'x' }],
+    [{ workspaceId: 42, content: 'x' }],
+    [{ workspaceId: 'w1', content: 7 }],
+    [{ workspaceId: 'w1', content: 'x'.repeat(1_000_001) }],
+    [{ workspaceId: 'w1' }],
+  ])('拒绝非法载荷 %o', (v) => {
+    expect(parseProjectInstructionInput(v)).toBeNull();
   });
 });

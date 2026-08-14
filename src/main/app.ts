@@ -43,6 +43,11 @@ import {
   readNotificationHistory,
 } from './notify/history.js';
 import {
+  normalizeWorkspaceRows,
+  projectAgentsPath,
+  resolveWorkspacePath,
+} from './prompt/projectInstructions.js';
+import {
   buildDesktopPatchYaml,
   globalAgentsPath,
   normalizePromptConfig,
@@ -990,6 +995,46 @@ const shellOps: ShellOps = {
   },
   readNotifications: () => readNotificationHistory(app.getPath('userData'), 500),
   clearNotifications: () => clearNotificationHistory(app.getPath('userData')),
+  listProjectInstructions: async () => {
+    // [FR-16.7] P1：workspace.list 现查工作区（路径/标题），读各自 <path>/AGENTS.md
+    const port = getStore().load().port ?? 3080;
+    try {
+      const value = await callRpc({ port, method: 'workspace.list', payload: {} });
+      const rows = normalizeWorkspaceRows(value);
+      const items = rows.map((row) => {
+        let content = '';
+        try {
+          content = readFileSync(projectAgentsPath(row.path), 'utf8');
+        } catch {
+          // 工作区还没有 AGENTS.md = 空内容
+        }
+        return { workspaceId: row.workspaceId, title: row.title, path: row.path, content };
+      });
+      return { ok: true, items };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `读取工作区失败：${error instanceof Error ? error.message : String(error)}（需要服务在运行）`,
+      };
+    }
+  },
+  saveProjectInstruction: async (input) => {
+    // 页面只传 workspaceId；路径每次从 workspace.list 现查，桥接不暴露任意文件写入
+    const port = getStore().load().port ?? 3080;
+    try {
+      const value = await callRpc({ port, method: 'workspace.list', payload: {} });
+      const path = resolveWorkspacePath(normalizeWorkspaceRows(value), input.workspaceId);
+      if (!path) return { ok: false, message: '找不到对应工作区（可能已被删除），刷新后再试。' };
+      writeFileSync(projectAgentsPath(path), input.content, 'utf8');
+      writeLog('shell', `project instruction saved for ${input.workspaceId} (${path})`);
+      return { ok: true, message: '已保存。DSH 会自动同步到该工作区的会话。' };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `保存失败：${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  },
 };
 
 // ---------------------------------------------------------------------------
