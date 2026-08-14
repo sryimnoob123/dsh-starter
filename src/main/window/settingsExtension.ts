@@ -98,6 +98,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     '#dsh-gp-section .dsh-gp-row .dsh-gp-sub{display:block;color:var(--dsw-alias-label-secondary,#b6b4ab);font-size:13px;}' +
     '#dsh-gp-section button.dsh-gp-btn{height:32px;padding:0 14px;border-radius:9px;border:1px solid transparent;' +
     'font:500 13px/32px inherit;cursor:pointer;}' +
+    '#dsh-gp-section button.dsh-gp-btn[disabled]{opacity:0.55;cursor:default;}' +
     '#dsh-gp-section .dsh-gp-primary{background:var(--dsw-alias-brand-primary,#edb449);color:var(--dsw-alias-label-primary-foreground,#151313);}' +
     '#dsh-gp-section .dsh-gp-ghost{background:transparent;color:var(--dsw-alias-label-primary,#e8e6dd);' +
     'border-color:var(--dsw-alias-border-l2,#393836);}' +
@@ -113,7 +114,6 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     document.head.appendChild(style);
   }
 
-  var injected = false;
   var shell = window.dshShell || null;
   var rows = [];
 
@@ -181,6 +181,9 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
         document.getElementById('dsh-gp-path').textContent = '';
         var dis = [document.getElementById('dsh-gp-global'), document.getElementById('dsh-gp-identity'), document.getElementById('dsh-gp-persona-toggle'), document.getElementById('dsh-gp-persona')];
         dis.forEach(function (n) { if (n) n.disabled = true; });
+        // 外部服务模式不接管：禁用重启按钮（与独立设置页一致，避免误导）
+        var restartBtn = document.getElementById('dsh-gp-save-restart');
+        if (restartBtn) restartBtn.disabled = true;
       }
       // 项目级指令
       var pr = await shell.listProjectInstructions();
@@ -324,8 +327,6 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
         section.style.display = 'none';
       });
     });
-
-    injected = true;
   }
 
   attach();
