@@ -5,6 +5,7 @@ DeepSeek Harness 的桌面客户端 —— 一个极简的 Electron 壳，把官
 [English](#english) · [中文](#中文)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/sryimnoob123/dsh-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/sryimnoob123/dsh-starter/actions/workflows/ci.yml)
 
 ---
 
@@ -39,7 +40,7 @@ Early stage (MVP). The shell core is implemented and covered by **186 tests**. S
 
 ### Install
 
-Download the installer from [Releases](https://github.com/dsh-desktop/dsh-desktop/releases) and run it. The first launch walks through a short onboarding wizard (workspace + model + API connection); after that, double-clicking the icon goes straight into the window.
+Download the installer from [Releases](https://github.com/sryimnoob123/dsh-starter/releases) and run it. The first launch walks through a short onboarding wizard (workspace + model + API connection); after that, double-clicking the icon goes straight into the window.
 
 > If a DSH service is already running locally, it is detected and reused — zero setup.
 
@@ -93,7 +94,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 ### 安装
 
-从 [Releases](https://github.com/dsh-desktop/dsh-desktop/releases) 下载安装包运行。首次启动会走一遍简短向导（工作区 + 模型 + API 连接）；之后双击图标即进入窗口。
+从 [Releases](https://github.com/sryimnoob123/dsh-starter/releases) 下载安装包运行。首次启动会走一遍简短向导（工作区 + 模型 + API 连接）；之后双击图标即进入窗口。
 
 > 若本机已有 DSH 服务在运行，会自动检测并复用，零配置。
 
