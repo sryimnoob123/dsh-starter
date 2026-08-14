@@ -96,8 +96,9 @@ export const VIEW_TAB_SCRIPT = `(function () {
   function seats() {
     // 有排队消息/任务卡时，底部固定层 = composerStack（含输入框 + 队列 dock）；
     // 无排队时 DSH 收成零高 composerSeat。两者任一在场都归它管，dock 再兜底。
+    // dock 用 "_dock" 语义后缀（DSH 哈希类名 = 前缀_后缀），避免子串误伤 dashboard 等。
     return Array.prototype.slice.call(
-      document.querySelectorAll('div[class*="composerStack"],div[class*="composerSeat"],div[class*="dock"]'),
+      document.querySelectorAll('div[class*="composerStack"],div[class*="composerSeat"],div[class*="_dock"]'),
     );
   }
   function update() {

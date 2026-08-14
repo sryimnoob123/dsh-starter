@@ -37,3 +37,27 @@ export function diffJobs(
   }
   return emitted;
 }
+
+/**
+ * 跨连接存活的 job 状态跟踪器（评审 C1 修复）：
+ * jobState 曾声明在 subscribeEvents() 内——每次断线重连都 new Map()，
+ * 重连后的首个快照里所有 job 都是"首次见"，终态一律静默，断线补偿（[FR-4.1]）失效。
+ * 提升为模块级单例：首次连接 = 基线回放（静默），重连 = 记忆存活（补发断线期间
+ * running→终态的 job）。状态量按 job 数增长，设上限防长驻膨胀（FIFO 淘汰）。
+ */
+const MAX_TRACKED_JOBS = 5000;
+
+export class JobTracker {
+  private readonly prev = new Map<string, JobStatus>();
+
+  apply(next: JobSnapshot): TerminalJob[] {
+    const emitted = diffJobs(this.prev, next);
+    // FIFO 淘汰：超出上限删最旧（Map 迭代序 = 插入序）
+    while (this.prev.size > MAX_TRACKED_JOBS) {
+      const oldest = this.prev.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.prev.delete(oldest);
+    }
+    return emitted;
+  }
+}

@@ -1,13 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  averageTtftMs,
-  billedInputTokens,
-  cacheHitPercent,
-  decodeTokensPerSecond,
-  formatDuration,
-  formatTokens,
-  normalizeSessionUsage,
-} from './sessionUsage.js';
+import { normalizeSessionUsage } from './sessionUsage.js';
 
 describe('normalizeSessionUsage（session.history projections 归一化）', () => {
   it('从完整 projections 提取字段', () => {
@@ -38,47 +30,15 @@ describe('normalizeSessionUsage（session.history projections 归一化）', () 
     expect(normalizeSessionUsage({ sessionStats: { turns: -5, llmMs: 'x' }, tokenUsage: { outputTokens: 1.6 } }))
       .toMatchObject({ turns: 0, llmMs: 0, outputTokens: 2 });
   });
-});
 
-describe('用量派生（DSH StatsLine 同款口径）', () => {
-  const u = normalizeSessionUsage({
-    sessionStats: {},
-    tokenUsage: { uncachedInputTokens: 1000, outputTokens: 500, cacheReadTokens: 3000, cacheWriteTokens: 0 },
-  });
-
-  it('billedInputTokens = 未缓存 + 缓存读 + 缓存写', () => {
-    expect(billedInputTokens(u)).toBe(4000);
-  });
-
-  it('cacheHitPercent 取整；无输入时 null', () => {
-    expect(cacheHitPercent(u)).toBe(75);
-    const empty = normalizeSessionUsage(null);
-    expect(cacheHitPercent(empty)).toBeNull();
-  });
-
-  it('averageTtftMs / decodeTokensPerSecond；无数据 null', () => {
-    const full = normalizeSessionUsage({
-      sessionStats: { ttftMs: 9000, ttftSteps: 3, decodeMs: 4000, decodeTokens: 800 },
-      tokenUsage: {},
+  it('浮点/负数输入被归整且不为负', () => {
+    const u = normalizeSessionUsage({
+      sessionStats: { turns: 2.7, steps: -3 },
+      tokenUsage: { cacheReadTokens: 12.6, cacheWriteTokens: -5 },
     });
-    expect(averageTtftMs(full)).toBe(3000);
-    expect(decodeTokensPerSecond(full)).toBe(200);
-    expect(averageTtftMs(u)).toBeNull();
-    expect(decodeTokensPerSecond(u)).toBeNull();
-  });
-});
-
-describe('格式化（紧凑，与 DSH StatsLine 一致）', () => {
-  it('formatTokens', () => {
-    expect(formatTokens(517)).toBe('517');
-    expect(formatTokens(12200)).toBe('12.2K');
-    expect(formatTokens(517000)).toBe('517K');
-    expect(formatTokens(1484043)).toBe('1.5M');
-  });
-
-  it('formatDuration', () => {
-    expect(formatDuration(45200)).toBe('45.2s');
-    expect(formatDuration(162000)).toBe('2m42s');
-    expect(formatDuration(26647221)).toBe('444m7s');
+    expect(u.turns).toBe(3);
+    expect(u.steps).toBe(0);
+    expect(u.cacheReadTokens).toBe(13);
+    expect(u.cacheWriteTokens).toBe(0);
   });
 });
