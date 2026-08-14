@@ -30,6 +30,14 @@ describe('parseNotificationLine', () => {
     });
   });
 
+  it('容忍首行 BOM（外部工具写入的 UTF-8 BOM）', () => {
+    expect(parseNotificationLine('\uFEFF{"time":123,"title":"t","body":"b"}')).toEqual({
+      time: 123,
+      title: 't',
+      body: 'b',
+    });
+  });
+
   it.each(['not-json', '{"time":"x"}', '{"time":1,"title":2,"body":"b"}', '[]', 'null', ''])(
     '坏行返回 null（%s）',
     (v) => {

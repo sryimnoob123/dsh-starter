@@ -22,7 +22,7 @@ The shell only owns four things: **window**, **tray**, **notifications**, and **
 
 ### Status
 
-Early stage (MVP). The shell core is implemented and covered by **275 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
+Early stage (MVP). The shell core is implemented and covered by **276 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
 
 ### Features
 
@@ -80,7 +80,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 ### 当前进度
 
-早期阶段（MVP）。壳核心已完成，并有 **275 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
+早期阶段（MVP）。壳核心已完成，并有 **276 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
 
 ### 功能
 

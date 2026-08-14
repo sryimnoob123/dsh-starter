@@ -19,10 +19,10 @@ export function notificationsFile(userDataDir: string): string {
   return join(userDataDir, 'notifications.jsonl');
 }
 
-/** 解析单行；坏行返回 null（历史里个别损坏不影响整体展示） */
+/** 解析单行；坏行返回 null（历史里个别损坏不影响整体展示）；容忍首行 BOM（外部工具写入） */
 export function parseNotificationLine(line: string): NotificationEntry | null {
   try {
-    const parsed = JSON.parse(line) as unknown;
+    const parsed = JSON.parse(line.replace(/^\uFEFF/, '')) as unknown;
     if (typeof parsed !== 'object' || parsed === null) return null;
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.time !== 'number' || typeof obj.title !== 'string' || typeof obj.body !== 'string') {
