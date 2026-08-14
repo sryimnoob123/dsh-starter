@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      用量统计页（用户要求：ZCode 那种用量统计，风格与现有 Codex 皮一致）：
+      视觉 = OpenChamber/Codex 设计系统原样（token 值、9px 圆角、18px 静音页题）。
+      桥契约：dshShell.getSessionUsage() / dshShell.openMain()
+      数据 = DSH session.history 的 host 投影（sessionStats + tokenUsage 现成汇总）。
+    -->
+    <style>
+      html[data-dsh-theme="dark"] {
+        --background: oklch(0.16 0.01 30);
+        --foreground: oklch(0.85 0.02 90);
+        --card: oklch(0.19 0.01 40);
+        --primary: oklch(0.77 0.17 85);
+        --primary-foreground: oklch(0.16 0.01 30);
+        --secondary: oklch(0.29 0.01 40);
+        --muted: oklch(0.33 0.01 40);
+        --muted-foreground: oklch(0.75 0.02 80);
+        --border: oklch(0.31 0.01 35);
+        --input: oklch(0.33 0.01 40);
+        --ring: oklch(0.77 0.17 85);
+      }
+      html[data-dsh-theme="light"] {
+        --background: oklch(0.97 0.02 85);
+        --foreground: oklch(0.25 0.02 40);
+        --card: oklch(0.99 0.01 90);
+        --primary: oklch(0.65 0.2 55);
+        --primary-foreground: oklch(0.99 0.01 90);
+        --secondary: oklch(0.92 0.02 80);
+        --muted: oklch(0.9 0.015 75);
+        --muted-foreground: oklch(0.45 0.02 50);
+        --border: oklch(0.85 0.02 70);
+        --input: oklch(0.88 0.02 75);
+        --ring: oklch(0.65 0.2 55);
+      }
+      :root {
+        --radius: 0.5625rem;
+        --background: oklch(0.16 0.01 30);
+        --foreground: oklch(0.85 0.02 90);
+        --card: oklch(0.19 0.01 40);
+        --primary: oklch(0.77 0.17 85);
+        --primary-foreground: oklch(0.16 0.01 30);
+        --secondary: oklch(0.29 0.01 40);
+        --muted: oklch(0.33 0.01 40);
+        --muted-foreground: oklch(0.75 0.02 80);
+        --border: oklch(0.31 0.01 35);
+        --input: oklch(0.33 0.01 40);
+        --ring: oklch(0.77 0.17 85);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .oc-page { max-width: 840px; margin: 0 auto; padding: 24px; }
+      @media (min-width: 1024px) { .oc-page { padding: 32px 48px; } }
+
+      .oc-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; padding-bottom: 24px; }
+      .oc-head-main { min-width: 0; flex: 1 1 256px; }
+      h1.oc-page-title {
+        font-size: 18px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em;
+        margin: 0; color: var(--muted-foreground);
+      }
+      .oc-desc { font-size: 14px; color: var(--muted-foreground); margin: 4px 0 0; max-width: 62ch; }
+      .oc-session { font-size: 13px; color: var(--muted-foreground); margin-top: 8px; display: block; overflow-wrap: anywhere; }
+
+      .oc-btn {
+        height: 36px; padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--border);
+        font: 500 14px/36px -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        cursor: pointer; background: transparent; color: var(--foreground);
+      }
+      .oc-btn:hover { background: var(--muted); }
+
+      /* section 与卡片组（OC SettingsSection 语言：border-t + py-8） */
+      .oc-section { border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent); padding: 32px 0 8px; }
+      .oc-section:first-of-type { border-top: 0; padding-top: 0; }
+      .oc-section h2 { font-size: 15px; font-weight: 600; line-height: 1.2; margin: 0 0 4px; }
+      .oc-section > .oc-desc { margin: 0 0 16px; }
+
+      /* ZCode 式数据卡：网格 + 大数字 + 静音标签 */
+      .oc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+      .oc-stat {
+        background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+        padding: 16px 16px 14px; min-width: 0;
+      }
+      .oc-stat .k { display: block; font-size: 13px; color: var(--muted-foreground); margin-bottom: 4px; overflow-wrap: anywhere; }
+      .oc-stat .v { display: block; font-size: 22px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+      .oc-stat .v--accent { color: var(--primary); }
+      .oc-stat .sub { display: block; margin-top: 3px; font-size: 12px; color: var(--muted-foreground); }
+
+      .oc-status { min-height: 20px; margin-top: 16px; font-size: 14px; color: var(--muted-foreground); }
+      .oc-status.err { color: var(--primary); }
+      .oc-empty { color: var(--muted-foreground); padding: 24px 0; }
+    </style>
+  </head>
+  <body>
+    <main class="oc-page">
+      <div class="oc-head">
+        <div class="oc-head-main">
+          <h1 class="oc-page-title" id="title"></h1>
+          <p class="oc-desc" id="lede"></p>
+          <span class="oc-session" id="sessionLine"></span>
+        </div>
+        <button class="oc-btn" id="backBtn" type="button"></button>
+      </div>
+
+      <section class="oc-section">
+        <h2 id="tokensTitle"></h2>
+        <p class="oc-desc" id="tokensHint"></p>
+        <div class="oc-grid">
+          <div class="oc-stat"><span class="k" id="inputLabel"></span><span class="v" id="inputValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="outputLabel"></span><span class="v" id="outputValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="cacheReadLabel"></span><span class="v" id="cacheReadValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="cacheWriteLabel"></span><span class="v" id="cacheWriteValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="cacheHitLabel"></span><span class="v v--accent" id="cacheHitValue">–</span></div>
+        </div>
+      </section>
+
+      <section class="oc-section">
+        <h2 id="timeTitle"></h2>
+        <p class="oc-desc" id="timeHint"></p>
+        <div class="oc-grid">
+          <div class="oc-stat"><span class="k" id="llmLabel"></span><span class="v" id="llmValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="toolLabel"></span><span class="v" id="toolValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="ttftLabel"></span><span class="v" id="ttftValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="decodeLabel"></span><span class="v" id="decodeValue">–</span></div>
+        </div>
+      </section>
+
+      <section class="oc-section">
+        <h2 id="activityTitle"></h2>
+        <p class="oc-desc" id="activityHint"></p>
+        <div class="oc-grid">
+          <div class="oc-stat"><span class="k" id="turnsLabel"></span><span class="v" id="turnsValue">–</span></div>
+          <div class="oc-stat"><span class="k" id="stepsLabel"></span><span class="v" id="stepsValue">–</span></div>
+        </div>
+      </section>
+
+      <p class="oc-status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const STR = {
+        zh: {
+          docTitle: '用量统计',
+          title: '用量统计',
+          lede: '当前会话的用量汇总（DSH 官方统计口径）。',
+          back: '返回对话',
+          tokensTitle: 'Token',
+          tokensHint: '输入为计费口径（未缓存 + 缓存读 + 缓存写）；输出与缓存读写分开统计。',
+          inputLabel: '输入（未缓存）',
+          outputLabel: '输出',
+          cacheReadLabel: '缓存读取',
+          cacheWriteLabel: '缓存写入',
+          cacheHitLabel: '缓存命中率',
+          timeTitle: '耗时',
+          timeHint: '墙钟时间：LLM 生成与工具执行的合计，以及首 token 与解码速度。',
+          llmLabel: 'LLM 总时长',
+          toolLabel: '工具总时长',
+          ttftLabel: '平均首 token',
+          decodeLabel: '解码速度',
+          activityTitle: '活动',
+          activityHint: '轮次 = 用户消息轮数；步数 = agent 执行的步数。',
+          turnsLabel: '轮次',
+          stepsLabel: '步数',
+          loading: '正在读取用量…',
+          failed: '读取失败：',
+          none: '暂无用量数据。',
+          session: '会话：',
+        },
+        en: {
+          docTitle: 'Usage',
+          title: 'Usage',
+          lede: 'Usage totals for the current session (DSH official accounting).',
+          back: 'Back to chat',
+          tokensTitle: 'Tokens',
+          tokensHint: 'Input is billed (uncached + cache read + cache write); output and cache traffic are tracked separately.',
+          inputLabel: 'Input (uncached)',
+          outputLabel: 'Output',
+          cacheReadLabel: 'Cache read',
+          cacheWriteLabel: 'Cache write',
+          cacheHitLabel: 'Cache hit',
+          timeTitle: 'Time',
+          timeHint: 'Wall-clock totals for LLM generation and tool execution, plus first-token and decode throughput.',
+          llmLabel: 'LLM time',
+          toolLabel: 'Tool time',
+          ttftLabel: 'Avg first token',
+          decodeLabel: 'Decode speed',
+          activityTitle: 'Activity',
+          activityHint: 'Turns = user message turns; steps = agent steps executed.',
+          turnsLabel: 'Turns',
+          stepsLabel: 'Steps',
+          loading: 'Loading usage…',
+          failed: 'Failed: ',
+          none: 'No usage data yet.',
+          session: 'Session: ',
+        },
+      };
+      const t = STR[lang];
+      document.title = 'deepseekharness — ' + t.docTitle;
+
+      const $ = (id) => document.getElementById(id);
+      $('title').textContent = t.title;
+      $('lede').textContent = t.lede;
+      $('backBtn').textContent = t.back;
+      $('tokensTitle').textContent = t.tokensTitle;
+      $('tokensHint').textContent = t.tokensHint;
+      $('inputLabel').textContent = t.inputLabel;
+      $('outputLabel').textContent = t.outputLabel;
+      $('cacheReadLabel').textContent = t.cacheReadLabel;
+      $('cacheWriteLabel').textContent = t.cacheWriteLabel;
+      $('cacheHitLabel').textContent = t.cacheHitLabel;
+      $('timeTitle').textContent = t.timeTitle;
+      $('timeHint').textContent = t.timeHint;
+      $('llmLabel').textContent = t.llmLabel;
+      $('toolLabel').textContent = t.toolLabel;
+      $('ttftLabel').textContent = t.ttftLabel;
+      $('decodeLabel').textContent = t.decodeLabel;
+      $('activityTitle').textContent = t.activityTitle;
+      $('activityHint').textContent = t.activityHint;
+      $('turnsLabel').textContent = t.turnsLabel;
+      $('stepsLabel').textContent = t.stepsLabel;
+
+      $('backBtn').addEventListener('click', () => {
+        if (window.dshShell && typeof window.dshShell.openMain === 'function') window.dshShell.openMain();
+      });
+
+      function setStatus(text, isErr) {
+        const el = $('status');
+        el.textContent = text;
+        el.className = 'oc-status' + (isErr ? ' err' : '');
+      }
+
+      function fmtTokens(n) {
+        const scaled = (v) => (v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10));
+        if (n < 1000) return String(n);
+        if (n < 1000000) return `${scaled(n / 1000)}K`;
+        return `${scaled(n / 1000000)}M`;
+      }
+      function fmtDuration(ms) {
+        const s = ms / 1000;
+        if (s < 60) return `${Math.round(s * 10) / 10}s`;
+        const whole = Math.round(s);
+        return `${Math.floor(whole / 60)}m${whole % 60}s`;
+      }
+
+      async function init() {
+        const shell = window.dshShell;
+        if (!shell || typeof shell.getSessionUsage !== 'function') {
+          setStatus(t.failed + 'preview', true);
+          return;
+        }
+        setStatus(t.loading, false);
+        try {
+          const result = await shell.getSessionUsage();
+          if (!result || !result.ok) {
+            setStatus((result && result.message) || t.failed, true);
+            return;
+          }
+          const u = result.usage || {};
+          const billed = (u.uncachedInputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheWriteTokens || 0);
+          const hit = billed === 0 ? null : Math.round(((u.cacheReadTokens || 0) / billed) * 100);
+          const ttftSteps = u.ttftSteps || 0;
+          const avgTtft = ttftSteps === 0 ? null : (u.ttftMs || 0) / ttftSteps;
+          const decodeSpeed = u.decodeMs > 0 && u.decodeTokens > 0
+            ? Math.round((u.decodeTokens / (u.decodeMs / 1000)) * 10) / 10
+            : null;
+
+          $('sessionLine').textContent = result.title ? t.session + result.title : '';
+          $('inputValue').textContent = fmtTokens(u.uncachedInputTokens || 0);
+          $('outputValue').textContent = fmtTokens(u.outputTokens || 0);
+          $('cacheReadValue').textContent = fmtTokens(u.cacheReadTokens || 0);
+          $('cacheWriteValue').textContent = fmtTokens(u.cacheWriteTokens || 0);
+          $('cacheHitValue').textContent = hit === null ? '–' : `${hit}%`;
+          $('llmValue').textContent = fmtDuration(u.llmMs || 0);
+          $('toolValue').textContent = fmtDuration(u.toolMs || 0);
+          $('ttftValue').textContent = avgTtft === null ? '–' : `${Math.round(avgTtft / 100) / 10}s`;
+          $('decodeValue').textContent = decodeSpeed === null ? '–' : `${decodeSpeed} t/s`;
+          $('turnsValue').textContent = String(u.turns || 0);
+          $('stepsValue').textContent = String(u.steps || 0);
+          setStatus('', false);
+        } catch (error) {
+          setStatus(t.failed + String(error), true);
+        }
+      }
+      init();
+    </script>
+  </body>
+</html>
