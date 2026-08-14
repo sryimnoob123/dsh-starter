@@ -29,6 +29,24 @@
         --success-soft: oklch(29% .01 40);
         --line: oklch(31% .01 35);
       }
+      /* 浅色主题（OC light 精确 token；深浅一致无突变） */
+      html[data-dsh-theme="light"] {
+        --brand: oklch(0.65 0.2 55);
+        --brand-hover: oklch(0.6 0.2 55);
+        --brand-active: oklch(0.55 0.2 55);
+        --bg: oklch(0.97 0.02 85);
+        --card: oklch(0.99 0.01 90);
+        --text: oklch(0.25 0.02 40);
+        --text-2: oklch(0.45 0.02 50);
+        --error: oklch(0.55 0.25 25);
+        --error-soft: oklch(0.55 0.25 25 / 0.1);
+        --success: oklch(0.55 0.14 150);
+        --success-soft: oklch(0.55 0.14 150 / 0.12);
+        --line: oklch(0.85 0.02 70);
+      }
+      html[data-dsh-theme="light"] .btn { color: oklch(0.99 0.01 90); }
+      html[data-dsh-theme="light"] .field input,
+      html[data-dsh-theme="light"] .field select { background: oklch(0.99 0.01 90); }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; }
       body {

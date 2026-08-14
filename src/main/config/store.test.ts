@@ -29,9 +29,31 @@ describe('ConfigStore', () => {
         port: 3090,
         window: { width: 1200, height: 800, maximized: false },
         notifications: { result: true },
+        uiTheme: 'dark',
       };
       store.save(config);
       expect(store.load()).toEqual(config);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uiTheme 三态归一：非法值回跟随系统（默认），合法值保留', () => {
+    const dir = tempDir();
+    const file = join(dir, 'shell-config.json');
+    try {
+      const store = new ConfigStore(file);
+      expect(store.load().uiTheme).toBe('system'); // 缺省 = 跟随系统
+      for (const [raw, expected] of [
+        ['light', 'light'],
+        ['dark', 'dark'],
+        ['system', 'system'],
+        ['blue', 'system'],
+        [42, 'system'],
+      ] as const) {
+        writeFileSync(file, JSON.stringify({ schemaVersion: 1, uiTheme: raw }), 'utf8');
+        expect(store.load().uiTheme).toBe(expected);
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

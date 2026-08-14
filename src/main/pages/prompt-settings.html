@@ -6,207 +6,307 @@
     <title>deepseekharness</title>
     <!--
       设置页 — 提示词管理（FR-16 V1）
-      桥契约：dshShell.getPromptSettings() / dshShell.savePromptSettings({...})
-      视觉：方案 A「气泡蓝」+ OpenChamber 深色 token（用户拍板，[D83]/[D76]），与其余 5 页同语言
+      视觉 = OpenChamber/Codex 设计系统原样（vendor 自 openchamber/openchamber 源码
+      packages/ui/src/styles/design-system.css：token 值、9px 圆角、设置页布局
+      max-width 840px / py-8 / border-t 分隔 section / 复选框行 / 单选组逐项照抄，[FR-35] 用户拍板）。
+      桥契约：dshShell.getPromptSettings / savePromptSettings / listProjectInstructions /
+      saveProjectInstruction / openMain
     -->
     <style>
+      /* ===== OpenChamber 设计 token（design-system.css 原值） ===== */
+      html[data-dsh-theme="dark"] {
+        --background: oklch(0.16 0.01 30);
+        --foreground: oklch(0.85 0.02 90);
+        --card: oklch(0.19 0.01 40);
+        --popover: oklch(0.24 0.01 40);
+        --primary: oklch(0.77 0.17 85);
+        --primary-foreground: oklch(0.16 0.01 30);
+        --secondary: oklch(0.29 0.01 40);
+        --muted: oklch(0.33 0.01 40);
+        --muted-foreground: oklch(0.75 0.02 80);
+        --accent: oklch(0.29 0.01 40);
+        --destructive: oklch(0.65 0.15 30);
+        --border: oklch(0.31 0.01 35);
+        --input: oklch(0.33 0.01 40);
+        --ring: oklch(0.77 0.17 85);
+        --status-error: oklch(0.65 0.15 30);
+        --status-success: oklch(0.68 0.12 145);
+      }
+      html[data-dsh-theme="light"] {
+        --background: oklch(0.97 0.02 85);
+        --foreground: oklch(0.25 0.02 40);
+        --card: oklch(0.99 0.01 90);
+        --popover: oklch(0.99 0.01 90);
+        --primary: oklch(0.65 0.2 55);
+        --primary-foreground: oklch(0.99 0.01 90);
+        --secondary: oklch(0.92 0.02 80);
+        --muted: oklch(0.9 0.015 75);
+        --muted-foreground: oklch(0.45 0.02 50);
+        --accent: oklch(0.92 0.02 80);
+        --destructive: oklch(0.55 0.25 25);
+        --border: oklch(0.85 0.02 70);
+        --input: oklch(0.88 0.02 75);
+        --ring: oklch(0.65 0.2 55);
+        --status-error: oklch(0.55 0.25 25);
+        --status-success: oklch(0.55 0.14 150);
+      }
       :root {
-        color-scheme: dark;
-        --brand: oklch(77% .17 85);
-        --brand-hover: oklch(70.5% .213 47.604);
-        --brand-active: oklch(65% .2 55);
-        --bg: #151313;
-        --card: oklch(19% .01 40);
-        --text: oklch(85% .02 90);
-        --text-2: oklch(75% .02 80);
-        --error: oklch(65% .15 30);
-        --error-soft: oklch(33% .01 40);
-        --warn: oklch(80% .12 85);
-        --warn-soft: oklch(30% .03 75);
-        --line: oklch(31% .01 35);
-        --input-bg: oklch(16% .01 30);
+        --radius: 0.5625rem; /* OC 9px */
+        --background: oklch(0.16 0.01 30);
+        --foreground: oklch(0.85 0.02 90);
+        --primary: oklch(0.77 0.17 85);
+        --primary-foreground: oklch(0.16 0.01 30);
+        --secondary: oklch(0.29 0.01 40);
+        --muted: oklch(0.33 0.01 40);
+        --muted-foreground: oklch(0.75 0.02 80);
+        --border: oklch(0.31 0.01 35);
+        --input: oklch(0.33 0.01 40);
+        --ring: oklch(0.77 0.17 85);
       }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; }
       body {
         min-height: 100vh;
-        background: var(--bg);
-        color: var(--text);
-        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
-        padding: 28px 20px 40px;
-        display: flex; justify-content: center;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
       }
-      .card {
-        width: min(680px, 100%);
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 36px 34px 30px;
-        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
-        animation: rise 150ms ease-out;
-      }
-      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-      h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; }
-      .lede { margin: 0 0 22px; color: var(--text-2); max-width: 60ch; }
 
-      .banner {
-        border: 1px solid var(--warn);
-        background: var(--warn-soft);
-        color: var(--text);
-        border-radius: 10px;
-        padding: 10px 14px;
-        margin: 0 0 20px;
-        font-size: 13px;
-      }
-      .banner[hidden] { display: none; }
+      /* ===== 设置页布局（OC SettingsPageLayout：max-width 840px / px-6 py-6 → @3xl px-12 py-8） ===== */
+      .oc-page { max-width: 840px; margin: 0 auto; padding: 24px; }
+      @media (min-width: 1024px) { .oc-page { padding: 32px 48px; } }
 
-      .group {
-        border-top: 1px solid var(--line);
-        padding: 18px 0;
+      .oc-head {
+        display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+        gap: 12px 16px; padding-bottom: 24px; margin-bottom: 8px;
       }
-      .group:first-of-type { border-top: 0; padding-top: 0; }
-      .group h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; display: flex; align-items: baseline; gap: 10px; }
-      .group h2 .tag { font-size: 12px; font-weight: 400; color: var(--text-2); }
-      .hint { margin: 0 0 10px; color: var(--text-2); font-size: 13px; max-width: 62ch; }
-      .path {
-        font-family: Consolas, "Courier New", monospace;
-        font-size: 12px;
-        color: var(--text-2);
-        background: var(--input-bg);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 6px 10px;
-        margin: 0 0 10px;
-        overflow-wrap: anywhere;
+      .oc-head-main { min-width: 0; flex: 1 1 256px; }
+      h1.oc-page-title {
+        font-size: 18px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em;
+        margin: 0; color: var(--muted-foreground); /* OC L1：比 section 标题更安静 */
       }
-      textarea {
-        width: 100%;
-        min-height: 84px;
-        resize: vertical;
-        background: var(--input-bg);
-        color: var(--text);
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 10px 12px;
-        font: 400 13px/1.6 Consolas, "Microsoft YaHei", monospace;
+      .oc-desc { font-size: 14px; color: var(--muted-foreground); margin: 4px 0 0; max-width: 62ch; }
+
+      /* section：border-t 分隔、py-8，首个无顶线（OC SettingsSection） */
+      .oc-section { border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent); padding: 32px 0; }
+      .oc-section:first-of-type { border-top: 0; padding-top: 0; }
+      .oc-section h2 { font-size: 15px; font-weight: 600; line-height: 1.2; margin: 0 0 4px; }
+      .oc-section > .oc-desc { margin: 0 0 16px; }
+
+      /* 字段行：窄屏纵向、宽屏 label 列 224px + 右侧控件（OC SettingsFieldRow） */
+      .oc-field-row { display: flex; flex-direction: column; gap: 8px; padding: 2px 0; }
+      .oc-label-col { min-width: 0; }
+      .oc-control { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; }
+      @media (min-width: 720px) {
+        .oc-field-row { flex-direction: row; align-items: center; gap: 32px; }
+        .oc-label-col { width: 224px; flex: none; }
+        .oc-control { justify-content: flex-end; }
+        .oc-control--start { justify-content: flex-start; }
       }
-      textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
-      textarea[disabled] { opacity: 0.55; }
-      select {
-        width: 100%;
-        background: var(--input-bg);
-        color: var(--text);
-        border: 1px solid var(--line);
-        border-radius: 10px;
+      .oc-field-label { font-size: 14px; line-height: 1.2; }
+      .oc-helper { font-size: 14px; line-height: 1.5; color: var(--muted-foreground); }
+
+      /* 复选框行 / 单选组（OC SettingsCheckboxRow / SettingsRadioOption 的视觉） */
+      .oc-opt-stack { display: flex; flex-direction: column; gap: 6px; }
+      .oc-check-row, .oc-radio-row {
+        display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 2px 0; user-select: none;
+      }
+      .oc-check-row.has-desc, .oc-radio-row.has-desc { align-items: flex-start; }
+      .oc-check-row.has-desc .oc-checkbox, .oc-radio-row.has-desc .oc-radio-dot { margin-top: 2px; }
+      .oc-check-input, .oc-radio-input { position: absolute; opacity: 0; pointer-events: none; }
+      .oc-checkbox {
+        width: 16px; height: 16px; flex: none; border: 1px solid var(--border); border-radius: 6px;
+        display: grid; place-items: center;
+      }
+      .oc-check-input:checked + .oc-checkbox { background: var(--primary); border-color: var(--primary); }
+      .oc-check-input:checked + .oc-checkbox::after {
+        content: ""; width: 9px; height: 5px;
+        border-left: 2px solid var(--primary-foreground); border-bottom: 2px solid var(--primary-foreground);
+        transform: rotate(-45deg) translate(0, -1px);
+      }
+      .oc-check-input:focus-visible + .oc-checkbox, .oc-radio-input:focus-visible + .oc-radio-dot {
+        outline: 2px solid var(--ring); outline-offset: 2px;
+      }
+      .oc-radio-dot { width: 16px; height: 16px; flex: none; border: 1px solid var(--border); border-radius: 50%; display: grid; place-items: center; }
+      .oc-radio-input:checked + .oc-radio-dot { border-color: var(--primary); }
+      .oc-radio-input:checked + .oc-radio-dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+      .oc-check-text, .oc-radio-text { display: flex; flex-direction: column; min-width: 0; }
+      .oc-radio-row .oc-field-label { color: color-mix(in oklch, var(--foreground) 55%, transparent); }
+      .oc-radio-input:checked ~ .oc-radio-text .oc-field-label { color: var(--foreground); }
+
+      /* 输入 / 文本域 / 下拉（OC 输入语言） */
+      .oc-input, .oc-textarea, .oc-select {
+        width: 100%; background: var(--input); color: var(--foreground);
+        border: 1px solid var(--border); border-radius: var(--radius);
+        font: 400 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
         padding: 8px 12px;
-        font: 400 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
-        margin-bottom: 10px;
       }
-      select:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
-
-      label.toggle { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
-      label.toggle input { margin-top: 4px; accent-color: var(--brand); }
-      label.toggle .code {
-        font-family: Consolas, monospace; font-size: 12.5px; color: var(--text-2);
-        display: block; margin-top: 2px;
+      .oc-textarea { resize: vertical; min-height: 96px; font-family: ui-monospace, 'SF Mono', Consolas, 'JetBrains Mono', Menlo, monospace; font-size: 13px; }
+      .oc-select { padding-right: 8px; }
+      .oc-input:focus, .oc-textarea:focus, .oc-select:focus { outline: 2px solid var(--ring); outline-offset: 1px; }
+      .oc-input[disabled], .oc-textarea[disabled] { opacity: 0.55; }
+      .oc-path {
+        font-family: ui-monospace, 'SF Mono', Consolas, monospace; font-size: 12px;
+        color: var(--muted-foreground); background: var(--input);
+        border: 1px solid var(--border); border-radius: var(--radius);
+        padding: 6px 10px; margin: 0 0 10px; overflow-wrap: anywhere;
       }
-
-      .note {
-        background: var(--input-bg);
-        border: 1px dashed var(--line);
-        border-radius: 10px;
-        padding: 10px 14px;
-        color: var(--text-2);
-        font-size: 13px;
+      .oc-note {
+        background: var(--secondary); border: 1px dashed var(--border);
+        border-radius: var(--radius); padding: 10px 14px;
+        color: var(--muted-foreground); font-size: 14px;
       }
 
-      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
-      .btn {
-        min-height: 40px; padding: 9px 20px;
-        border: 0; border-radius: 10px; cursor: pointer;
-        font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
-        background: var(--brand); color: oklch(16% .01 30);
-        transition: background 120ms ease;
+      /* 按钮（OC Button：36px 主按钮琥珀底、ghost 描边、chip 小号） */
+      .oc-btn {
+        height: 36px; padding: 0 16px; border-radius: var(--radius); border: 1px solid transparent;
+        font: 500 14px/36px -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        cursor: pointer;
       }
-      .btn:hover { background: var(--brand-hover); }
-      .btn:active { background: var(--brand-active); }
-      .btn[disabled] { opacity: 0.55; cursor: default; }
-      .btn--ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
-      .btn--ghost:hover { background: var(--bg); }
-      .link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--brand); font: 600 13px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif; }
-      .link:hover { text-decoration: underline; }
-      .status { min-height: 1.4em; margin: 16px 0 0; color: var(--text-2); font-size: 13px; }
-      .status.err { color: var(--error); }
+      .oc-btn--primary { background: var(--primary); color: var(--primary-foreground); }
+      .oc-btn--primary:hover { background: color-mix(in oklch, var(--primary) 88%, var(--foreground)); }
+      .oc-btn--ghost { background: transparent; color: var(--foreground); border-color: var(--border); }
+      .oc-btn--ghost:hover { background: var(--muted); }
+      .oc-btn--chip {
+        height: 28px; padding: 0 12px; font-size: 13px; font-weight: 400; line-height: 28px;
+        background: transparent; color: var(--muted-foreground); border-color: var(--border);
+      }
+      .oc-btn--chip:hover { color: var(--foreground); }
+      .oc-btn[disabled] { opacity: 0.55; cursor: default; }
+      .oc-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+      .oc-status { min-height: 20px; margin-top: 12px; font-size: 14px; color: var(--muted-foreground); }
+      .oc-status.err { color: var(--status-error); }
+      .oc-status.ok { color: var(--status-success); }
 
-      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
-      @media (prefers-reduced-motion: reduce) { .card { animation: none; } .btn { transition: none; } }
+      .oc-banner {
+        border: 1px solid var(--border); background: var(--secondary);
+        border-radius: var(--radius); padding: 10px 14px; margin: 0 0 8px; font-size: 14px;
+      }
+      .oc-banner[hidden] { display: none; }
     </style>
   </head>
   <body>
-    <main class="card">
-      <h1 id="title"></h1>
-      <p class="lede" id="lede"></p>
-
-      <div class="banner" id="reuseBanner" hidden></div>
-
-      <section class="group" id="groupGlobal">
-        <h2><span id="gGlobalTitle"></span><span class="tag" id="gGlobalTag"></span></h2>
-        <p class="hint" id="gGlobalHint"></p>
-        <p class="path" id="globalPath"></p>
-        <textarea id="globalPrompt" rows="10" spellcheck="false" placeholder=""></textarea>
-      </section>
-
-      <section class="group" id="groupProject">
-        <h2><span id="gProjectTitle"></span><span class="tag" id="gProjectTag"></span></h2>
-        <p class="hint" id="gProjectHint"></p>
-        <select id="workspaceSelect" aria-label="workspace"></select>
-        <p class="path" id="projectPath"></p>
-        <textarea id="projectPrompt" rows="8" spellcheck="false"></textarea>
-        <div class="row">
-          <button class="btn" id="projectSaveBtn" type="button"></button>
+    <main class="oc-page">
+      <div class="oc-head">
+        <div class="oc-head-main">
+          <h1 class="oc-page-title" id="title"></h1>
+          <p class="oc-desc" id="lede"></p>
         </div>
-        <p class="status" id="projectStatus" role="status" aria-live="polite"></p>
+        <button class="oc-btn oc-btn--ghost" id="backBtn" type="button"></button>
+      </div>
+
+      <div class="oc-banner" id="reuseBanner" hidden></div>
+
+      <section class="oc-section">
+        <h2 id="gGlobalTitle"></h2>
+        <p class="oc-desc" id="gGlobalHint"></p>
+        <p class="oc-path" id="globalPath"></p>
+        <textarea class="oc-textarea" id="globalPrompt" rows="10" spellcheck="false" placeholder=""></textarea>
       </section>
 
-      <section class="group" id="groupIdentity">
-        <h2><span id="gIdentityTitle"></span><span class="tag" id="gIdentityTag"></span></h2>
-        <p class="hint" id="gIdentityHint"></p>
-        <label class="toggle">
-          <input type="checkbox" id="identityToggle" />
-          <span>
-            <span id="gIdentityLabel"></span>
-            <span class="code">You are an AI agent powered by DeepSeek Harness.</span>
+      <section class="oc-section">
+        <h2 id="gInjectTitle"></h2>
+        <p class="oc-desc" id="gInjectHint"></p>
+        <div class="oc-opt-stack">
+          <label class="oc-check-row">
+            <input type="checkbox" class="oc-check-input" id="identityToggle" />
+            <span class="oc-checkbox" aria-hidden="true"></span>
+            <span class="oc-check-text">
+              <span class="oc-field-label" id="gIdentityLabel"></span>
+              <span class="oc-helper" id="gIdentityHint"></span>
+            </span>
+          </label>
+          <label class="oc-check-row has-desc">
+            <input type="checkbox" class="oc-check-input" id="personaToggle" />
+            <span class="oc-checkbox" aria-hidden="true"></span>
+            <span class="oc-check-text">
+              <span class="oc-field-label" id="gPersonaTitle"></span>
+              <span class="oc-helper" id="gPersonaHint"></span>
+            </span>
+          </label>
+        </div>
+        <div class="oc-field-row" style="margin-top: 8px">
+          <div class="oc-label-col">
+            <span class="oc-field-label" id="gPersonaTemplate"></span>
+            <p class="oc-helper" id="gPersonaTemplateHint"></p>
+          </div>
+          <div class="oc-control oc-control--start">
+            <textarea class="oc-textarea" id="persona" rows="4" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <div class="oc-actions">
+          <button class="oc-btn oc-btn--chip" id="injectDefaultsBtn" type="button"></button>
+        </div>
+      </section>
+
+      <section class="oc-section">
+        <h2 id="gProjectTitle"></h2>
+        <p class="oc-desc" id="gProjectHint"></p>
+        <select class="oc-select" id="workspaceSelect" aria-label="workspace"></select>
+        <p class="oc-path" id="projectPath" style="margin-top: 10px"></p>
+        <textarea class="oc-textarea" id="projectPrompt" rows="8" spellcheck="false"></textarea>
+        <div class="oc-actions">
+          <button class="oc-btn oc-btn--primary" id="projectSaveBtn" type="button"></button>
+        </div>
+        <p class="oc-status" id="projectStatus" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="oc-section">
+        <h2 id="gNotifyTitle"></h2>
+        <p class="oc-desc" id="gNotifyHint"></p>
+        <label class="oc-check-row">
+          <input type="checkbox" class="oc-check-input" id="notifyToggle" />
+          <span class="oc-checkbox" aria-hidden="true"></span>
+          <span class="oc-check-text">
+            <span class="oc-field-label" id="gNotifyLabel"></span>
           </span>
         </label>
-        <p style="margin:10px 0 0"><button class="link" id="identityReset" type="button"></button></p>
       </section>
 
-      <section class="group" id="groupPersona">
-        <h2><span id="gPersonaTitle"></span><span class="tag" id="gPersonaTag"></span></h2>
-        <p class="hint" id="gPersonaHint"></p>
-        <textarea id="persona" rows="4" spellcheck="false"></textarea>
-        <p style="margin:10px 0 0"><button class="link" id="personaReset" type="button"></button></p>
+      <section class="oc-section">
+        <h2 id="gAppearanceTitle"></h2>
+        <p class="oc-desc" id="gAppearanceHint"></p>
+        <div class="oc-opt-stack" role="radiogroup" aria-label="theme">
+          <label class="oc-radio-row has-desc">
+            <input type="radio" class="oc-radio-input" name="uiTheme" value="system" id="themeSystemRadio" checked />
+            <span class="oc-radio-dot" aria-hidden="true"></span>
+            <span class="oc-radio-text">
+              <span class="oc-field-label" id="themeSystem"></span>
+              <span class="oc-helper" id="themeSystemHint"></span>
+            </span>
+          </label>
+          <label class="oc-radio-row has-desc">
+            <input type="radio" class="oc-radio-input" name="uiTheme" value="dark" id="themeDarkRadio" />
+            <span class="oc-radio-dot" aria-hidden="true"></span>
+            <span class="oc-radio-text">
+              <span class="oc-field-label" id="themeDark"></span>
+              <span class="oc-helper" id="themeDarkHint"></span>
+            </span>
+          </label>
+          <label class="oc-radio-row has-desc">
+            <input type="radio" class="oc-radio-input" name="uiTheme" value="light" id="themeLightRadio" />
+            <span class="oc-radio-dot" aria-hidden="true"></span>
+            <span class="oc-radio-text">
+              <span class="oc-field-label" id="themeLight"></span>
+              <span class="oc-helper" id="themeLightHint"></span>
+            </span>
+          </label>
+        </div>
+        <p class="oc-status" id="themeStatus" role="status" aria-live="polite"></p>
       </section>
 
-      <section class="group" id="groupNotify">
-        <h2><span id="gNotifyTitle"></span><span class="tag" id="gNotifyTag"></span></h2>
-        <p class="hint" id="gNotifyHint"></p>
-        <label class="toggle">
-          <input type="checkbox" id="notifyToggle" />
-          <span id="gNotifyLabel"></span>
-        </label>
+      <section class="oc-section">
+        <h2 id="gTemplatesTitle"></h2>
+        <div class="oc-note" id="gTemplatesNote"></div>
       </section>
 
-      <section class="group" id="groupTemplates">
-        <h2><span id="gTemplatesTitle"></span><span class="tag" id="gTemplatesTag"></span></h2>
-        <div class="note" id="gTemplatesNote"></div>
-      </section>
-
-      <div class="row">
-        <button class="btn" id="saveBtn" type="button"></button>
-        <button class="btn" id="saveRestartBtn" type="button"></button>
+      <div class="oc-actions">
+        <button class="oc-btn oc-btn--primary" id="saveBtn" type="button"></button>
+        <button class="oc-btn oc-btn--ghost" id="saveRestartBtn" type="button"></button>
       </div>
-      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <p class="oc-status" id="status" role="status" aria-live="polite"></p>
     </main>
 
     <script>
@@ -222,96 +322,102 @@
         zh: {
           docTitle: '设置',
           title: '设置',
-          lede: '这里管理系统提示词的注入方式。改动只影响桌面端自己拉起的服务；保存即生效。',
+          lede: '管理提示词注入、项目级指令、通知与外观。改动只影响桌面端自己拉起的服务；保存即生效。',
           reuseBanner:
-            '当前复用的是外部 DSH 服务：身份注入 / persona / 全局指令由那个服务的环境决定，桌面端无法接管（通知开关除外，仍可在这里设置）。如需接管：在原处停止外部服务，再回到桌面重新启动。',
+            '当前复用的是外部 DSH 服务：身份注入 / persona / 全局指令由那个服务的环境决定，桌面端无法接管（通知开关与外观除外）。如需接管：在原处停止外部服务，再回到桌面重新启动。',
           preview: '预览模式：未连接壳，编辑不会保存。',
           gGlobalTitle: '全局系统提示词',
-          gGlobalTag: '所见即所注入',
-          gGlobalHint:
-            '这个文件就是 DSH 每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容；DSH 检测到文件变化后自动同步到会话。',
+          gGlobalHint: '这个文件就是 DSH 每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容；DSH 检测到文件变化后自动同步到会话。',
           gGlobalPlaceholder: '在这里写全局规则，例如：\n\n- 用中文回答\n- 先想清楚再动手',
+          gInjectTitle: '系统提示词注入',
+          gInjectHint: '两个注入开关：身份声明与 Persona。可以一键启用默认注入，也可以单独调整。',
+          gIdentityLabel: '身份注入',
+          gIdentityHint: '在每轮系统提示词开头加上一行 DSH 身份声明。默认关闭。',
+          gPersonaTitle: 'Persona 注入',
+          gPersonaHint: '拼接在系统提示词里的常驻段落；支持 {{model}} 与 {{cwd}} 变量。关闭 = 不注入。',
+          gPersonaTemplate: 'Persona 模板',
+          gPersonaTemplateHint: '打开开关即注入；修改模板后保存生效。',
+          injectDefaults: '一键注入默认提示词',
           gProjectTitle: '项目级指令',
-          gProjectTag: '工作区 AGENTS.md',
-          gProjectHint:
-            '每个工作区自己的规则文件（DSH 同时认 AGENTS.md 与 CLAUDE.md，这里编辑 AGENTS.md）。保存后该工作区的会话自动同步。',
+          gProjectHint: '每个工作区自己的规则文件（DSH 同时认 AGENTS.md 与 CLAUDE.md，这里编辑 AGENTS.md）。保存后该工作区的会话自动同步。',
           projectSave: '保存到该工作区',
           projectLoading: '正在读取工作区…',
           projectNone: '没有工作区，或服务未在运行。',
           projectSaved: '已保存。',
           projectFailed: '保存失败：',
-          gIdentityTitle: '身份注入',
-          gIdentityTag: '默认关闭',
-          gIdentityHint:
-            '勾选后每轮系统提示词开头会加上一行 DSH 身份声明。默认关闭，把开头留给你的自定义内容。',
-          gIdentityLabel: '注入身份声明：',
-          gPersonaTitle: 'Persona（全局行为提示词）',
-          gPersonaTag: '重启生效',
-          gPersonaHint:
-            '拼接在系统提示词里的常驻段落。支持 {{model}}（当前模型）与 {{cwd}}（工作目录）变量；留空 = 不注入 persona。',
           gNotifyTitle: '通知',
-          gNotifyTag: '即时生效',
           gNotifyHint: '任务完成 / 失败时弹桌面通知。关闭后静音，服务与窗口不受影响。',
           gNotifyLabel: '任务结果通知',
+          gAppearanceTitle: '外观',
+          gAppearanceHint: '整窗配色（Codex 风）。切换即时生效，下次启动保持。',
+          themeSystem: '跟随系统',
+          themeSystemHint: '随操作系统的深浅色自动切换（默认）。',
+          themeDark: '深色',
+          themeDarkHint: '始终使用深色主题。',
+          themeLight: '浅色',
+          themeLightHint: '始终使用浅色主题。',
+          themeSaved: '已保存。',
+          themeFailed: '保存失败：',
           gTemplatesTitle: '内置流程模板',
-          gTemplatesTag: '暂不支持',
           gTemplatesNote:
-            '子 agent 派发/汇总模板、计划模式提示词目前写死在 DSH 内置预设里，DSH 还没有开放终端用户编辑这些模板的接口，面板里暂不能改。想定制流程，可以把规范写进上面的全局指令文件，效果等同。',
+            '子 agent 派发/汇总模板、计划模式提示词目前写死在 DSH 内置预设里，DSH 还没有开放终端用户编辑这些模板的接口。想定制流程，可以把规范写进上面的全局指令文件，效果等同。',
           save: '保存',
           saveRestart: '保存并重启服务',
-          identityReset: '恢复默认（关闭）',
-          personaReset: '恢复默认模板',
           saved: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
           savedRestart: '设置已保存，正在重启服务…',
           failed: '保存失败：',
           disabled: '（外部服务模式，只读）',
+          back: '返回对话',
         },
         en: {
           docTitle: 'Settings',
           title: 'Settings',
-          lede: 'Control how the system prompt is injected. Changes only affect the service started by this app and apply immediately on save.',
+          lede: 'Manage prompt injection, project instructions, notifications and appearance. Changes only affect the service started by this app and apply on save.',
           reuseBanner:
-            'An external DSH service is being reused: identity / persona / global instructions belong to that service and cannot be taken over from here (except the notification switch, which still works). To take over, stop the external service where it was started, then restart from this app.',
+            'An external DSH service is being reused: identity / persona / global instructions belong to that service and cannot be taken over from here (notifications and appearance still work). To take over, stop the external service where it was started, then restart from this app.',
           preview: 'Preview mode: no shell connected, edits are not saved.',
           gGlobalTitle: 'Global system prompt',
-          gGlobalTag: 'WYSIWYG',
-          gGlobalHint:
-            'This file is the global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; DSH picks up changes automatically.',
+          gGlobalHint: 'This file is the global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; DSH picks up changes automatically.',
           gGlobalPlaceholder: 'Write global rules here, e.g.:\n\n- Answer in Chinese\n- Think before acting',
+          gInjectTitle: 'System prompt injection',
+          gInjectHint: 'Two injection switches: identity statement and persona. Enable the defaults with one click, or adjust each separately.',
+          gIdentityLabel: 'Identity injection',
+          gIdentityHint: 'Prepends a DSH identity line to every system prompt. Off by default.',
+          gPersonaTitle: 'Persona injection',
+          gPersonaHint: 'A standing paragraph appended to the system prompt; supports the {{model}} and {{cwd}} variables. Off = not injected.',
+          gPersonaTemplate: 'Persona template',
+          gPersonaTemplateHint: 'Injected when the switch is on; edits apply on save.',
+          injectDefaults: 'Inject default prompts with one click',
           gProjectTitle: 'Project instructions',
-          gProjectTag: 'workspace AGENTS.md',
-          gProjectHint:
-            'Per-workspace rules file (DSH reads both AGENTS.md and CLAUDE.md; this panel edits AGENTS.md). Sessions in that workspace sync automatically after saving.',
+          gProjectHint: 'Per-workspace rules file (DSH reads both AGENTS.md and CLAUDE.md; this panel edits AGENTS.md). Sessions in that workspace sync automatically after saving.',
           projectSave: 'Save to workspace',
           projectLoading: 'Loading workspaces…',
           projectNone: 'No workspaces, or the service is not running.',
           projectSaved: 'Saved.',
           projectFailed: 'Save failed: ',
-          gIdentityTitle: 'Identity injection',
-          gIdentityTag: 'off by default',
-          gIdentityHint:
-            'When checked, a DSH identity line is prepended to every system prompt. Off by default so the opening belongs to your own content.',
-          gIdentityLabel: 'Inject identity:',
-          gPersonaTitle: 'Persona (global behavior prompt)',
-          gPersonaTag: 'needs restart',
-          gPersonaHint:
-            'A standing paragraph appended to the system prompt. Supports the {{model}} and {{cwd}} variables; empty = no persona injected.',
           gNotifyTitle: 'Notifications',
-          gNotifyTag: 'applies immediately',
           gNotifyHint: 'Desktop notifications when a job finishes or fails. Turning them off silences them without affecting the service or the window.',
           gNotifyLabel: 'Job result notifications',
+          gAppearanceTitle: 'Appearance',
+          gAppearanceHint: 'Window-wide color scheme (Codex style). Switching applies immediately and persists across restarts.',
+          themeSystem: 'Follow system',
+          themeSystemHint: 'Switch automatically with the operating system (default).',
+          themeDark: 'Dark',
+          themeDarkHint: 'Always use the dark theme.',
+          themeLight: 'Light',
+          themeLightHint: 'Always use the light theme.',
+          themeSaved: 'Saved.',
+          themeFailed: 'Save failed: ',
           gTemplatesTitle: 'Built-in flow templates',
-          gTemplatesTag: 'not supported yet',
           gTemplatesNote:
             'Sub-agent dispatch/summary templates and plan-mode prompts currently live inside DSH’s shipped presets, and DSH has no end-user API for editing them yet. To customize flows, write your conventions into the global prompt file above — equivalent effect.',
           save: 'Save',
           saveRestart: 'Save & restart service',
-          identityReset: 'Reset to default (off)',
-          personaReset: 'Reset to default template',
           saved: 'Saved. Global instructions sync automatically; identity & persona apply after a service restart.',
           savedRestart: 'Saved — restarting the service…',
           failed: 'Save failed: ',
           disabled: '(external service, read-only)',
+          back: 'Back to chat',
         },
       };
       const t = STR[lang];
@@ -319,19 +425,25 @@
 
       const $ = (id) => document.getElementById(id);
       const el = {
-        title: $('title'), lede: $('lede'), reuseBanner: $('reuseBanner'),
-        gGlobalTitle: $('gGlobalTitle'), gGlobalTag: $('gGlobalTag'), gGlobalHint: $('gGlobalHint'),
+        title: $('title'), lede: $('lede'), reuseBanner: $('reuseBanner'), backBtn: $('backBtn'),
+        gGlobalTitle: $('gGlobalTitle'), gGlobalHint: $('gGlobalHint'),
         globalPath: $('globalPath'), globalPrompt: $('globalPrompt'),
-        gProjectTitle: $('gProjectTitle'), gProjectTag: $('gProjectTag'), gProjectHint: $('gProjectHint'),
+        gInjectTitle: $('gInjectTitle'), gInjectHint: $('gInjectHint'),
+        gIdentityLabel: $('gIdentityLabel'), gIdentityHint: $('gIdentityHint'), identityToggle: $('identityToggle'),
+        gPersonaTitle: $('gPersonaTitle'), gPersonaHint: $('gPersonaHint'),
+        gPersonaTemplate: $('gPersonaTemplate'), gPersonaTemplateHint: $('gPersonaTemplateHint'),
+        personaToggle: $('personaToggle'), persona: $('persona'), injectDefaultsBtn: $('injectDefaultsBtn'),
+        gProjectTitle: $('gProjectTitle'), gProjectHint: $('gProjectHint'),
         workspaceSelect: $('workspaceSelect'), projectPath: $('projectPath'), projectPrompt: $('projectPrompt'),
         projectSaveBtn: $('projectSaveBtn'), projectStatus: $('projectStatus'),
-        gIdentityTitle: $('gIdentityTitle'), gIdentityTag: $('gIdentityTag'), gIdentityHint: $('gIdentityHint'),
-        gIdentityLabel: $('gIdentityLabel'), identityToggle: $('identityToggle'), identityReset: $('identityReset'),
-        gPersonaTitle: $('gPersonaTitle'), gPersonaTag: $('gPersonaTag'), gPersonaHint: $('gPersonaHint'),
-        persona: $('persona'), personaReset: $('personaReset'),
-        gNotifyTitle: $('gNotifyTitle'), gNotifyTag: $('gNotifyTag'), gNotifyHint: $('gNotifyHint'),
+        gNotifyTitle: $('gNotifyTitle'), gNotifyHint: $('gNotifyHint'),
         gNotifyLabel: $('gNotifyLabel'), notifyToggle: $('notifyToggle'),
-        gTemplatesTitle: $('gTemplatesTitle'), gTemplatesTag: $('gTemplatesTag'), gTemplatesNote: $('gTemplatesNote'),
+        gAppearanceTitle: $('gAppearanceTitle'), gAppearanceHint: $('gAppearanceHint'),
+        themeSystemRadio: $('themeSystemRadio'), themeDarkRadio: $('themeDarkRadio'), themeLightRadio: $('themeLightRadio'),
+        themeSystem: $('themeSystem'), themeSystemHint: $('themeSystemHint'),
+        themeDark: $('themeDark'), themeDarkHint: $('themeDarkHint'),
+        themeLight: $('themeLight'), themeLightHint: $('themeLightHint'), themeStatus: $('themeStatus'),
+        gTemplatesTitle: $('gTemplatesTitle'), gTemplatesNote: $('gTemplatesNote'),
         saveBtn: $('saveBtn'), saveRestartBtn: $('saveRestartBtn'), status: $('status'),
       };
 
@@ -339,29 +451,34 @@
         el.title.textContent = t.title;
         el.lede.textContent = t.lede;
         el.reuseBanner.textContent = t.reuseBanner;
+        el.backBtn.textContent = t.back;
         el.gGlobalTitle.textContent = t.gGlobalTitle;
-        el.gGlobalTag.textContent = t.gGlobalTag;
         el.gGlobalHint.textContent = t.gGlobalHint;
         el.globalPrompt.placeholder = t.gGlobalPlaceholder;
+        el.gInjectTitle.textContent = t.gInjectTitle;
+        el.gInjectHint.textContent = t.gInjectHint;
+        el.gIdentityLabel.textContent = t.gIdentityLabel;
+        el.gIdentityHint.textContent = t.gIdentityHint;
+        el.gPersonaTitle.textContent = t.gPersonaTitle;
+        el.gPersonaHint.textContent = t.gPersonaHint;
+        el.gPersonaTemplate.textContent = t.gPersonaTemplate;
+        el.gPersonaTemplateHint.textContent = t.gPersonaTemplateHint;
+        el.injectDefaultsBtn.textContent = t.injectDefaults;
         el.gProjectTitle.textContent = t.gProjectTitle;
-        el.gProjectTag.textContent = t.gProjectTag;
         el.gProjectHint.textContent = t.gProjectHint;
         el.projectSaveBtn.textContent = t.projectSave;
-        el.gIdentityTitle.textContent = t.gIdentityTitle;
-        el.gIdentityTag.textContent = t.gIdentityTag;
-        el.gIdentityHint.textContent = t.gIdentityHint;
-        el.gIdentityLabel.textContent = t.gIdentityLabel;
-        el.identityReset.textContent = t.identityReset;
-        el.gPersonaTitle.textContent = t.gPersonaTitle;
-        el.gPersonaTag.textContent = t.gPersonaTag;
-        el.gPersonaHint.textContent = t.gPersonaHint;
-        el.personaReset.textContent = t.personaReset;
         el.gNotifyTitle.textContent = t.gNotifyTitle;
-        el.gNotifyTag.textContent = t.gNotifyTag;
         el.gNotifyHint.textContent = t.gNotifyHint;
         el.gNotifyLabel.textContent = t.gNotifyLabel;
+        el.gAppearanceTitle.textContent = t.gAppearanceTitle;
+        el.gAppearanceHint.textContent = t.gAppearanceHint;
+        el.themeSystem.textContent = t.themeSystem;
+        el.themeSystemHint.textContent = t.themeSystemHint;
+        el.themeDark.textContent = t.themeDark;
+        el.themeDarkHint.textContent = t.themeDarkHint;
+        el.themeLight.textContent = t.themeLight;
+        el.themeLightHint.textContent = t.themeLightHint;
         el.gTemplatesTitle.textContent = t.gTemplatesTitle;
-        el.gTemplatesTag.textContent = t.gTemplatesTag;
         el.gTemplatesNote.textContent = t.gTemplatesNote;
         el.saveBtn.textContent = t.save;
         el.saveRestartBtn.textContent = t.saveRestart;
@@ -370,24 +487,20 @@
 
       function setStatus(text, isErr) {
         el.status.textContent = text;
-        el.status.className = 'status' + (isErr ? ' err' : '');
+        el.status.className = 'oc-status' + (isErr ? ' err' : '');
       }
 
       function setEditable(on) {
-        for (const node of [el.globalPrompt, el.identityToggle, el.persona, el.identityReset, el.personaReset]) {
+        for (const node of [el.globalPrompt, el.identityToggle, el.personaToggle, el.persona]) {
           node.disabled = !on;
-        }
-        if (!on) {
-          el.gGlobalTag.textContent = t.disabled;
-          el.gIdentityTag.textContent = t.disabled;
-          el.gPersonaTag.textContent = t.disabled;
         }
       }
 
       function buildPayload(restart) {
         return {
           includeHarnessIdentity: el.identityToggle.checked,
-          persona: el.persona.value,
+          // Persona 注入开关：关 = 不注入（存空）
+          persona: el.personaToggle.checked ? el.persona.value : '',
           globalPrompt: el.globalPrompt.value,
           notifyResult: el.notifyToggle.checked,
           restart,
@@ -401,10 +514,8 @@
         try {
           const result = await shell.savePromptSettings(buildPayload(restart));
           if (result && result.ok) {
-            // 优先展示壳返回的准确结果（复用模式下与 managed 文案不同），缺省才用本地文案
             setStatus(result.restarting ? t.savedRestart : (result.message || t.saved), false);
             if (result.restarting) {
-              // 重启会导航回主界面；页面即将卸载
               el.saveBtn.disabled = true;
               el.saveRestartBtn.disabled = true;
             }
@@ -418,23 +529,29 @@
 
       el.saveBtn.addEventListener('click', () => save(false));
       el.saveRestartBtn.addEventListener('click', () => save(true));
-      el.identityReset.addEventListener('click', () => { el.identityToggle.checked = false; });
-      el.personaReset.addEventListener('click', () => { el.persona.value = WEB_BASE_PERSONA; });
+      el.backBtn.addEventListener('click', () => {
+        const shell = window.dshShell;
+        if (shell && typeof shell.openMain === 'function') shell.openMain();
+      });
+      // 一键注入默认提示词：两个开关全开 + 默认模板
+      el.injectDefaultsBtn.addEventListener('click', () => {
+        el.identityToggle.checked = true;
+        el.personaToggle.checked = true;
+        el.persona.value = WEB_BASE_PERSONA;
+        setStatus(t.injectDefaults + ' ✓', false);
+      });
 
-      // ---- 项目级指令（[FR-16.7] P1）：工作区下拉 + 各自 AGENTS.md ----
+      // ---- 项目级指令（[FR-16.7] P1） ----
       let projectRows = [];
-
       function renderWorkspace(row) {
         el.workspaceSelect.value = row.workspaceId;
         el.projectPath.textContent = row.path ? row.path + '/AGENTS.md' : '';
         el.projectPrompt.value = row.content || '';
       }
-
       function setProjectStatus(text, isErr) {
         el.projectStatus.textContent = text;
-        el.projectStatus.className = 'status' + (isErr ? ' err' : '');
+        el.projectStatus.className = 'oc-status' + (isErr ? ' err' : '');
       }
-
       async function loadProjectInstructions() {
         const shell = window.dshShell;
         if (!shell || typeof shell.listProjectInstructions !== 'function') return;
@@ -463,12 +580,10 @@
           setProjectStatus(t.projectFailed + String(error), true);
         }
       }
-
       el.workspaceSelect.addEventListener('change', () => {
         const row = projectRows.find((r) => r.workspaceId === el.workspaceSelect.value);
         if (row) renderWorkspace(row);
       });
-
       el.projectSaveBtn.addEventListener('click', async () => {
         const shell = window.dshShell;
         if (!shell) return;
@@ -478,6 +593,58 @@
         });
         setProjectStatus(result.ok ? t.projectSaved : t.projectFailed + (result.message || ''), !result.ok);
       });
+
+      // ---- 外观（跟随系统/深色/浅色三态） ----
+      let themeChoice = 'system';
+      function systemDark() {
+        return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      function resolvedTheme(choice) {
+        return choice === 'system' ? (systemDark() ? 'dark' : 'light') : choice;
+      }
+      function setThemeRadio(choice) {
+        el.themeSystemRadio.checked = choice === 'system';
+        el.themeDarkRadio.checked = choice === 'dark';
+        el.themeLightRadio.checked = choice === 'light';
+      }
+      function setPageTheme(resolved) {
+        document.documentElement.setAttribute('data-dsh-theme', resolved);
+      }
+      async function applyTheme(choice) {
+        const prev = themeChoice;
+        themeChoice = choice;
+        setThemeRadio(choice);
+        setPageTheme(resolvedTheme(choice));
+        const shell = window.dshShell;
+        if (!shell || typeof shell.savePromptSettings !== 'function') return;
+        try {
+          const result = await shell.savePromptSettings({ ...buildPayload(false), uiTheme: choice });
+          if (result && result.ok) {
+            el.themeStatus.textContent = t.themeSaved;
+            el.themeStatus.className = 'oc-status ok';
+          } else {
+            themeChoice = prev;
+            setThemeRadio(prev);
+            setPageTheme(resolvedTheme(prev));
+            el.themeStatus.textContent = t.themeFailed + (result && result.message ? result.message : '');
+            el.themeStatus.className = 'oc-status err';
+          }
+        } catch (error) {
+          themeChoice = prev;
+          setThemeRadio(prev);
+          setPageTheme(resolvedTheme(prev));
+          el.themeStatus.textContent = t.themeFailed + String(error);
+          el.themeStatus.className = 'oc-status err';
+        }
+      }
+      el.themeSystemRadio.addEventListener('change', () => { if (el.themeSystemRadio.checked) void applyTheme('system'); });
+      el.themeDarkRadio.addEventListener('change', () => { if (el.themeDarkRadio.checked) void applyTheme('dark'); });
+      el.themeLightRadio.addEventListener('change', () => { if (el.themeLightRadio.checked) void applyTheme('light'); });
+      if (typeof matchMedia === 'function') {
+        matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+          if (themeChoice === 'system') setPageTheme(systemDark() ? 'dark' : 'light');
+        });
+      }
 
       async function init() {
         const shell = window.dshShell;
@@ -491,8 +658,15 @@
           const state = await shell.getPromptSettings();
           if (!state) throw new Error('empty state');
           el.identityToggle.checked = Boolean(state.includeHarnessIdentity);
-          el.persona.value = typeof state.persona === 'string' ? state.persona : WEB_BASE_PERSONA;
+          const personaText = typeof state.persona === 'string' ? state.persona : '';
+          el.personaToggle.checked = personaText.trim() !== '';
+          el.persona.value = personaText || WEB_BASE_PERSONA;
           el.notifyToggle.checked = state.notifyResult !== false;
+          const theme = state.uiTheme === 'dark' || state.uiTheme === 'light' ? state.uiTheme : 'system';
+          const themeResolved = state.uiThemeResolved === 'light' ? 'light' : 'dark';
+          themeChoice = theme;
+          setThemeRadio(theme);
+          setPageTheme(themeResolved);
           if (state.mode === 'managed') {
             el.globalPrompt.value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
             el.globalPath.textContent = state.globalPromptPath || '';
@@ -500,7 +674,6 @@
             el.reuseBanner.hidden = false;
             el.globalPath.textContent = '';
             setEditable(false);
-            // 通知开关是壳自己的配置，外部服务模式下仍可保存；重启按钮禁用（外部服务不接管）
             el.saveRestartBtn.disabled = true;
           }
         } catch (error) {
@@ -508,6 +681,7 @@
         }
       }
       init();
+      loadProjectInstructions();
     </script>
   </body>
 </html>

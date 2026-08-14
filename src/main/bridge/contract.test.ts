@@ -11,7 +11,7 @@ import {
 } from './contract.js';
 
 describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D79] 外包包 §2）', () => {
-  it('锁定 20 个方法名', () => {
+  it('锁定 22 个方法名', () => {
     expect(Object.keys(BRIDGE_API).sort()).toEqual([
       'choosePort',
       'clearNotifications',
@@ -22,6 +22,8 @@ describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D
       'onProgress',
       'onServiceStatus',
       'openLogs',
+      'openMain',
+      'openPromptSettings',
       'pickDir',
       'quit',
       'readLog',
@@ -141,6 +143,12 @@ describe('parsePromptSettingsInput（设置页保存载荷，[FR-16]/[FR-4.3]）
     expect(parsePromptSettingsInput(valid)).toEqual(valid);
   });
 
+  it('接受可选 uiTheme（跟随系统/深色/浅色三态）', () => {
+    expect(parsePromptSettingsInput({ ...valid, uiTheme: 'light' })).toEqual({ ...valid, uiTheme: 'light' });
+    expect(parsePromptSettingsInput({ ...valid, uiTheme: 'dark' })).toEqual({ ...valid, uiTheme: 'dark' });
+    expect(parsePromptSettingsInput({ ...valid, uiTheme: 'system' })).toEqual({ ...valid, uiTheme: 'system' });
+  });
+
   it.each([
     [null],
     [{ ...valid, includeHarnessIdentity: 'no' }],
@@ -150,6 +158,8 @@ describe('parsePromptSettingsInput（设置页保存载荷，[FR-16]/[FR-4.3]）
     [{ ...valid, globalPrompt: 'x'.repeat(1_000_001) }],
     [{ ...valid, restart: 1 }],
     [{ ...valid, notifyResult: 'yes' }],
+    [{ ...valid, uiTheme: 'blue' }],
+    [{ ...valid, uiTheme: 1 }],
   ])('拒绝非法载荷 %o', (v) => {
     expect(parsePromptSettingsInput(v)).toBeNull();
   });

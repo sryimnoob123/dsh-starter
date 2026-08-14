@@ -1,8 +1,9 @@
-﻿/**
+/**
  * 官方鲸鱼图标栅格化（[D14] 官方黑色鲸鱼，资产版权归 DeepSeek）：
  * 来源 = DSH 仓库 apps/web/public/favicon.svg（官方 logo 几何），
  * 用 Electron 离屏渲染成 512×512 透明底 PNG → assets/icon.png。
- * 用法：electron scripts/render-icon.mjs
+ * WHITE=1 时渲染白色鲸鱼 → assets/icon-white.png（深色主题用白鲸，浅色用黑鲸）。
+ * 用法：electron scripts/render-icon.mjs（黑鲸）；$env:WHITE='1'; electron scripts/render-icon.mjs（白鲸）
  */
 import { app, BrowserWindow } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -10,8 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SVG_SOURCE = process.env.DSH_FAVICON_SVG ?? 'path/to/deepseek-harness/apps/web/public/favicon.svg';
-const OUT = join(__dirname, '..', 'assets', 'icon.png');
+const SVG_SOURCE = process.env.DSH_FAVICON_SVG ?? 'E:/TOOLS/deepseek-harness/apps/web/public/favicon.svg';
+const WHITE = process.env.WHITE === '1';
+const OUT = join(__dirname, '..', 'assets', WHITE ? 'icon-white.png' : 'icon.png');
 const SIZE = 512;
 
 app.whenReady().then(async () => {
@@ -24,13 +26,12 @@ app.whenReady().then(async () => {
     webPreferences: { offscreen: true },
   });
 
-  // 去掉暗色模式变体样式（保留官方自带的黑色填充），放大到 512
+  // 黑鲸 = 去掉样式（path 无 fill → 默认黑）；白鲸 = 样式强制白填充（深色主题用白鲸）
   const svg = readFileSync(SVG_SOURCE, 'utf8')
-    .replace(/<style>[\s\S]*?<\/style>/, '')
+    .replace(/<style>[\s\S]*?<\/style>/, WHITE ? '<style>path{fill:#fff;}</style>' : '')
     .replace(/width="[^"]*"/, `width="${SIZE}"`)
     .replace(/height="[^"]*"/, `height="${SIZE}"`);
-  console.log(`svg head: ${svg.slice(0, 120)}`);
-  console.log(`fill count: ${(svg.match(/fill=/g) ?? []).length}`);
+  console.log(`rendering ${WHITE ? 'white' : 'black'} whale`);
 
   try {
     await win.loadURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`);

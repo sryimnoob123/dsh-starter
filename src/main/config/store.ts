@@ -15,6 +15,8 @@ export interface ShellConfig {
   notifications?: { result: boolean };
   /** 提示词管理（[FR-16]：身份注入开关 + persona；语义与默认值见 src/main/prompt/promptSettings.ts） */
   prompt?: { includeHarnessIdentity?: boolean; persona?: string };
+  /** 界面主题（[D83]/[D85] 扩展：跟随系统/深色/浅色；默认跟随系统） */
+  uiTheme?: 'system' | 'dark' | 'light';
 }
 
 const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };
@@ -22,6 +24,8 @@ const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };
 export const DEFAULT_CONFIG: ShellConfig = {
   schemaVersion: 1,
   notifications: DEFAULT_NOTIFICATIONS,
+  // 主题默认跟随系统（用户拍板：[D83]/[D85] 扩展三态）
+  uiTheme: 'system',
 };
 
 /**
@@ -45,6 +49,8 @@ export class ConfigStore {
         notifications: {
           result: obj.notifications?.result ?? DEFAULT_NOTIFICATIONS.result,
         },
+        // 只认 light/dark/system，其余一律回跟随系统（防脏数据突变）
+        uiTheme: obj.uiTheme === 'light' || obj.uiTheme === 'dark' ? obj.uiTheme : 'system',
       };
     } catch {
       return { ...DEFAULT_CONFIG };

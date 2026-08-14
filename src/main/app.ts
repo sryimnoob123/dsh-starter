@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, Notification, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,16 @@ import { saveConnectionToService } from './onboarding/dshConfig.js';
 import { buildNpmInstallArgs, defaultInstallDir, dshBinPath, dshEntryJsPath } from './install/dshPackage.js';
 import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
-import { DESKTOP_CSS, TITLEBAR_SCRIPT } from './window/desktopChrome.js';
+import {
+  DESKTOP_CSS,
+  DSH_HEADER_DRAG_SCRIPT,
+  FLOATING_CONTROLS_SCRIPT,
+  PAGE_DRAG_SCRIPT,
+  PAGE_THEME_CSS,
+  PAGE_THEME_SCRIPT,
+} from './window/desktopChrome.js';
+import { CODEX_SKIN_CSS } from './window/codexSkin.js';
+import { SETTINGS_EXTENSION_SCRIPT } from './window/settingsExtension.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
 import { normalizeWindowBounds } from './window/bounds.js';
 import { buildCompactPayload, describeCompactFeedback, parseCurrentSessionId } from './commands/compact.js';
@@ -68,6 +77,8 @@ const NOTIFICATIONS_PAGE = join(__dirname, 'pages', 'notifications.html');
 const PRELOAD = join(__dirname, 'bridge', 'preload.cjs');
 const DEFAULT_PATCH = join(__dirname, '..', '..', 'assets', 'desktop.patch.yml');
 const ICON = join(__dirname, '..', '..', 'assets', 'icon.png');
+/** 白鲸（深色主题用白鲸、浅色用黑鲸；用户拍板） */
+const ICON_WHITE = join(__dirname, '..', '..', 'assets', 'icon-white.png');
 
 interface TrayItem {
   id: string;
@@ -94,12 +105,47 @@ function emitServiceStatus(win: BrowserWindow, status: ShellStatus, detail: stri
 }
 
 /**
- * 整窗深色（用户拍板：整体像 Codex/OpenChamber）：走 DSH 官方主题设置
- * （ui-theme namespace，Appearance 行的同一条路），不硬改 DSH 的 CSS。
+ * 整窗 Codex 主题（用户拍板：整窗像 Codex/OpenChamber；跟随系统/深色/浅色三态，默认跟随系统）：
+ * 走 DSH 官方主题设置（ui-theme namespace，Appearance 行的同一条路），不硬改 DSH 的 CSS；
+ * 换肤本身由壳注入的 codexSkin 变量表完成（深浅两套随主题属性切换）。
+ * 图标：深色主题 = 白鲸、浅色 = 黑鲸。
  */
+function currentUiTheme(): 'system' | 'dark' | 'light' {
+  const t = getStore().load().uiTheme;
+  return t === 'dark' || t === 'light' ? t : 'system';
+}
+
+/** 实际生效主题（system 按操作系统解析） */
+function resolveUiTheme(): 'dark' | 'light' {
+  const choice = currentUiTheme();
+  if (choice === 'system') return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return choice;
+}
+
+/** 主题对应的鲸鱼图标：深色 = 白鲸，浅色 = 黑鲸 */
+function themeIcon(): string {
+  return resolveUiTheme() === 'dark' ? ICON_WHITE : ICON;
+}
+
+/** 主题生效面：窗口底色 + 窗口图标 + 托盘图标（DSH 页面主题经 settings.update 同步） */
+function applyDesktopTheme(): void {
+  const resolved = resolveUiTheme();
+  mainWindow?.setBackgroundColor(resolved === 'dark' ? '#151313' : '#f6f2e8');
+  try {
+    mainWindow?.setIcon(resolved === 'dark' ? ICON_WHITE : ICON);
+    tray?.setImage(resolved === 'dark' ? ICON_WHITE : ICON);
+  } catch {
+    // 图标替换失败不影响主题
+  }
+}
+
 function syncDesktopTheme(port: number): void {
-  callRpc({ port, method: 'settings.update', payload: { ns: 'ui-theme', patch: { preference: 'dark' } } })
-    .then(() => writeLog('shell', 'theme synced to dark'))
+  callRpc({
+    port,
+    method: 'settings.update',
+    payload: { ns: 'ui-theme', patch: { preference: currentUiTheme() } },
+  })
+    .then(() => writeLog('shell', `theme synced to ${currentUiTheme()}`))
     .catch((error: unknown) => writeLog('shell', `theme sync failed: ${String(error)}`));
 }
 
@@ -176,8 +222,8 @@ trayItems.register({
   title: '设置',
   order: 35,
   click: ({ window }) => {
-    // [FR-16.1] 设置页（当前唯一分组 = 提示词管理）
-    void loadPromptSettings(window);
+    // [FR-16.1] 设置 = DSH 应用内设置（用户拍板：与 DSH 设置放一起）；打不开才回独立页
+    void openInAppSettings(window);
   },
 });
 
@@ -263,7 +309,7 @@ function updateTrayState(): void {
 let tray: Tray | null = null;
 
 function setupTray(win: BrowserWindow): void {
-  tray = new Tray(ICON);
+  tray = new Tray(themeIcon());
   const menu = Menu.buildFromTemplate(
     trayItems.list().map((item) => ({
       label: item.title,
@@ -623,10 +669,10 @@ function createWindow(): BrowserWindow {
     width: 1280,
     height: 800,
     title: 'deepseekharness',
-    icon: ICON, // 官方黑色鲸鱼图标（[D14]，assets/icon.png）
-    // [D83]/[D84] 深色无边框 + 整体自绘标题栏（OpenChamber 同款结构，配色用我们的深色板）：
-    // 原生标题栏与原生按钮全部去掉，标题栏由壳注入（最小化/最大化/关闭为自绘按钮）
-    backgroundColor: '#151313',
+    icon: themeIcon(), // 官方鲸鱼图标（[D14]；深色主题 = 白鲸、浅色 = 黑鲸）
+    // [D83]/[D84] 深色无边框 + 整体自绘标题栏（Codex 同款结构）；三态主题：
+    // 窗口底色跟随实际生效主题，避免加载/切换瞬间出现突兀色块
+    backgroundColor: resolveUiTheme() === 'dark' ? '#151313' : '#f6f2e8',
     frame: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
@@ -647,9 +693,24 @@ function createWindow(): BrowserWindow {
     mainWindow?.hide();
   });
   // 导航护栏：文件拖放由 DSH 页面自己的 drop 区处理；拖到区外若被当导航会
-  // 离开壳面，这里拦住（只放行 127.0.0.1；loadFile/loadURL 程序化加载不受影响）
+  // 离开壳面，这里拦住（只放行 127.0.0.1；loadFile/loadURL 程序化加载不受影响）。
+  // 开发调试（DSH_DEV_ALLOW_FILE=1，默认关闭）：页面导航到壳本地页时，由主进程
+  // 代用 loadFile 加载（绕过 Chromium 对 http→file 导航的封锁），供自跑验收截图。
   win.webContents.on('will-navigate', (event, url) => {
-    if (!isAllowedNavigationUrl(url)) event.preventDefault();
+    if (isAllowedNavigationUrl(url)) return;
+    if (process.env.DSH_DEV_ALLOW_FILE === '1' && url.startsWith('file://')) {
+      event.preventDefault();
+      try {
+        const target = new URL(url);
+        const query: Record<string, string> = {};
+        for (const [key, value] of target.searchParams) query[key] = value;
+        void win.loadFile(fileURLToPath(target), { query });
+      } catch {
+        // 解析失败：保持拦截
+      }
+      return;
+    }
+    event.preventDefault();
   });
   // 右键菜单：Electron 默认不提供原生右键菜单，这里补上复制/粘贴/剪切/全选/撤销重做
   win.webContents.on('context-menu', (_event, params) => {
@@ -671,15 +732,23 @@ function createWindow(): BrowserWindow {
       Menu.buildFromTemplate(template).popup({ window: win });
     }
   });
-  // 所有页面统一注入自绘标题栏（壳本地页 + DSH 页面；拖拽区 = 标题栏本身）；
-  // DSH 页面额外注入深色细滚动条样式 + 内容下移（去掉网页感，[D83]/[D84]）
+  // 无标题栏（用户拍板）：右上角悬浮窗口按钮（设置/最小化/最大化/关闭）统一注入所有页面；
+  // DSH 页面：应用自身 header 做拖拽区 + 深色细滚动条 + Codex 换肤变量表（深浅两套）。
+  // 壳本地页：顶部透明拖拽条 + 主题初始化脚本（?uiTheme=）+ 深浅滚动条/悬浮按钮变量。
   win.webContents.on('did-finish-load', () => {
     const url = win.webContents.getURL();
-    if (url.startsWith('file://') || url.startsWith('http://127.0.0.1')) {
-      win.webContents.executeJavaScript(TITLEBAR_SCRIPT).catch(() => undefined);
-    }
-    if (url.startsWith('http://127.0.0.1')) {
+    if (url.startsWith('file://')) {
+      win.webContents.executeJavaScript(PAGE_THEME_SCRIPT).catch(() => undefined);
+      win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
+      win.webContents.executeJavaScript(PAGE_DRAG_SCRIPT).catch(() => undefined);
+      win.webContents.insertCSS(PAGE_THEME_CSS).catch(() => undefined);
+    } else if (url.startsWith('http://127.0.0.1')) {
+      win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
+      win.webContents.executeJavaScript(DSH_HEADER_DRAG_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(DESKTOP_CSS).catch(() => undefined);
+      win.webContents.insertCSS(CODEX_SKIN_CSS).catch(() => undefined);
+      // 官方设置扩展：所有壳新设置都作为选项放进 DSH 自带设置（用户拍板）
+      win.webContents.executeJavaScript(SETTINGS_EXTENSION_SCRIPT).catch(() => undefined);
     }
   });
   return win;
@@ -689,15 +758,20 @@ function loadUrl(win: BrowserWindow, url: string): Promise<void> {
   return win.loadURL(url).catch(() => loadGuide(win, 'spawn-crash'));
 }
 
+/** 壳本地页统一 query：lang + uiTheme（实际生效主题，页面据此初始化） */
+function pageQuery(): Record<string, string> {
+  return { lang: 'zh', uiTheme: resolveUiTheme() };
+}
+
 function loadGuide(win: BrowserWindow, guidance: string): Promise<void> {
-  return win.loadFile(GUIDE_PAGE, { query: { guidance, lang: 'zh' } }).catch(() => undefined);
+  return win.loadFile(GUIDE_PAGE, { query: { ...pageQuery(), guidance } }).catch(() => undefined);
 }
 
 /** 端口冲突询问页（[FR-25.3]：候选端口 + 用户选择后记住） */
 function loadPortPrompt(win: BrowserWindow, occupied: number, candidates: number[]): Promise<void> {
   return win
     .loadFile(PORT_PROMPT_PAGE, {
-      query: { port: String(occupied), candidates: candidates.join(','), lang: 'zh' },
+      query: { ...pageQuery(), port: String(occupied), candidates: candidates.join(',') },
     })
     .catch(() => loadGuide(win, 'port-occupied'));
 }
@@ -705,34 +779,65 @@ function loadPortPrompt(win: BrowserWindow, occupied: number, candidates: number
 /** 安装向导页（[FR-22.5]；页面由外包交付，占位版保证入口可达） */
 function loadInstallWizard(win: BrowserWindow, step = 'ask'): Promise<void> {
   return win
-    .loadFile(INSTALL_PAGE, { query: { step, lang: 'zh' } })
+    .loadFile(INSTALL_PAGE, { query: { ...pageQuery(), step } })
     .catch(() => loadGuide(win, 'dsh-missing'));
 }
 
 /** 首启向导页（[FR-21.1]：首次服务就绪后显示；页面缺失时退回主界面） */
 function loadOnboarding(win: BrowserWindow): Promise<void> {
   return win
-    .loadFile(ONBOARDING_PAGE, { query: { step: 'welcome', lang: 'zh' } })
+    .loadFile(ONBOARDING_PAGE, { query: { ...pageQuery(), step: 'welcome' } })
     .catch(() => loadUrl(win, `http://127.0.0.1:${getStore().load().port ?? 3080}`));
 }
 
 /** 日志页（[D21] 托盘入口；页面缺失时退回打开日志目录） */
 function loadLogsPage(win: BrowserWindow): Promise<void> {
   return win
-    .loadFile(LOGS_PAGE, { query: { log: 'shell', lang: 'zh' } })
+    .loadFile(LOGS_PAGE, { query: { ...pageQuery(), log: 'shell' } })
     .catch(() => {
       shell.openPath(join(app.getPath('userData'), 'logs')).catch(() => undefined);
     });
 }
 
-/** 设置页（[FR-16.1] 提示词管理分组） */
+/** 设置页（[FR-16.1] 提示词管理分组；独立页仅作 DSH 应用内设置打不开时的回落） */
 function loadPromptSettings(win: BrowserWindow): Promise<void> {
-  return win.loadFile(PROMPT_SETTINGS_PAGE, { query: { lang: 'zh' } }).catch(() => undefined);
+  return win.loadFile(PROMPT_SETTINGS_PAGE, { query: pageQuery() }).catch(() => undefined);
+}
+
+/** 打开 DSH 应用内设置（用户拍板：设置与 DSH 自身设置放一起）；失败回落独立设置页 */
+function openInAppSettings(win: BrowserWindow): void {
+  if (!isDshAppUrl(win.webContents.getURL())) {
+    void loadPromptSettings(win);
+    return;
+  }
+  win.webContents
+    .executeJavaScript(
+      `(function () {
+        const hit = [...document.querySelectorAll('button,[role=button],a')].find(
+          (b) => /^\\s*(设置|Settings)\\s*$/.test(b.textContent || ''),
+        );
+        if (hit) { hit.click(); return true; }
+        return false;
+      })()`,
+    )
+    .then((opened) => {
+      if (!opened) void loadPromptSettings(win);
+    })
+    .catch(() => void loadPromptSettings(win));
 }
 
 /** 通知历史页（[D31]：回看/清空） */
 function loadNotificationsPage(win: BrowserWindow): Promise<void> {
-  return win.loadFile(NOTIFICATIONS_PAGE, { query: { lang: 'zh' } }).catch(() => undefined);
+  return win.loadFile(NOTIFICATIONS_PAGE, { query: pageQuery() }).catch(() => undefined);
+}
+
+/** 返回对话主界面（设置/通知/日志页"返回对话"；未完成首启向导时回向导） */
+function loadMain(win: BrowserWindow): Promise<void> {
+  const config = getStore().load();
+  if (config.onboardingDone) {
+    return loadUrl(win, `http://127.0.0.1:${config.port ?? 3080}`);
+  }
+  return loadOnboarding(win);
 }
 
 /** 用户级 --patch overlay（[FR-16]：身份/persona 设置落这里；无则用打包默认基线） */
@@ -806,7 +911,7 @@ async function runInstallFlow(win: BrowserWindow, dir: string): Promise<void> {
   if (installRunning) return;
   installRunning = true;
   try {
-    await win.loadFile(INSTALL_PAGE, { query: { step: 'download', lang: 'zh' } });
+    await win.loadFile(INSTALL_PAGE, { query: { ...pageQuery(), step: 'download' } });
     // 打包版先确保有可用 Node（没有就自动下载官方发行版），再用它跑 npm 装 DSH
     const runtime = await ensureNodeRuntime({
       userData: app.getPath('userData'),
@@ -827,7 +932,7 @@ async function runInstallFlow(win: BrowserWindow, dir: string): Promise<void> {
     store.save(config);
     writeLog('shell', `dsh installed to ${dir}`);
     sendProgress(win, { phase: 'configure', percent: -1, detail: '安装完成，已记录安装位置。' });
-    await win.loadFile(INSTALL_PAGE, { query: { step: 'launch', lang: 'zh' } });
+    await win.loadFile(INSTALL_PAGE, { query: { ...pageQuery(), step: 'launch' } });
     sendProgress(win, { phase: 'launch', percent: -1, detail: '正在启动 DSH 服务…' });
     await startShell(win);
     sendProgress(win, { phase: 'done', percent: 100, detail: '完成' });
@@ -861,6 +966,21 @@ const shellOps: ShellOps = {
   goInstall: () => {
     const win = mainWindow ?? createWindow();
     void loadInstallWizard(win);
+  },
+  openPromptSettings: () => {
+    // [FR-21] 标题栏齿轮：打开 DSH 应用内设置（功能设置与 DSH 设置放一起）。
+    // 开发调试（DSH_DEV_ALLOW_FILE=1）：直接加载独立设置页，供自跑验收截图。
+    const win = mainWindow ?? createWindow();
+    if (process.env.DSH_DEV_ALLOW_FILE === '1') {
+      void loadPromptSettings(win);
+      return;
+    }
+    openInAppSettings(win);
+  },
+  openMain: () => {
+    // 设置/通知/日志页的"返回对话"
+    const win = mainWindow ?? createWindow();
+    void loadMain(win);
   },
   choosePort: async (port) => {
     const store = getStore();
@@ -913,6 +1033,8 @@ const shellOps: ShellOps = {
     const config = getStore().load();
     const prompt = normalizePromptConfig(config.prompt);
     const notifyResult = config.notifications?.result ?? true;
+    const uiTheme = currentUiTheme();
+    const uiThemeResolved = resolveUiTheme();
     if (reuseMode) {
       // 复用外部服务：路径由其环境决定，三项均不可接管（[D75] 显式提示，不静默）
       return {
@@ -922,6 +1044,8 @@ const shellOps: ShellOps = {
         globalPrompt: '',
         globalPromptPath: null,
         notifyResult,
+        uiTheme,
+        uiThemeResolved,
       };
     }
     const path = globalAgentsPath(app.getPath('userData'));
@@ -938,6 +1062,8 @@ const shellOps: ShellOps = {
       globalPrompt,
       globalPromptPath: path,
       notifyResult,
+      uiTheme,
+      uiThemeResolved,
     };
   },
   savePromptSettings: async (input) => {
@@ -950,9 +1076,19 @@ const shellOps: ShellOps = {
       notifyConfig.notifications = { result: notifyResult };
       notifyStore.save(notifyConfig);
     }
+    // 主题是壳自己的配置：即时生效（DSH 走官方 ui-theme 三态；窗口/托盘图标同步）
+    if (input.uiTheme !== undefined) {
+      const themeStore = getStore();
+      const themeConfig = themeStore.load();
+      themeConfig.uiTheme = input.uiTheme;
+      themeStore.save(themeConfig);
+      syncDesktopTheme(themeConfig.port ?? 3080);
+      applyDesktopTheme();
+      writeLog('shell', `ui theme set to ${input.uiTheme} (resolved ${resolveUiTheme()})`);
+    }
     if (reuseMode) {
-      return notifyChanged
-        ? { ok: true, restarting: false, message: '已保存。通知开关即时生效。' }
+      return notifyChanged || input.uiTheme !== undefined
+        ? { ok: true, restarting: false, message: '已保存。通知开关与主题即时生效。' }
         : {
             ok: false,
             restarting: false,
@@ -1053,6 +1189,12 @@ if (!gotLock) {
     setupTray(win);
     registerBridge(shellOps);
     setupAutoUpdater(); // [D78] 自动检查更新 + 自动下载（安装用户确认）
+    // 三态主题：操作系统深浅色变化时（跟随系统模式）同步 DSH 与图标
+    nativeTheme.on('updated', () => {
+      applyDesktopTheme();
+      const port = getStore().load().port ?? 3080;
+      if (reuseMode || serviceProcess) syncDesktopTheme(port);
+    });
     void startShell(win);
   });
   app.on('window-all-closed', () => {

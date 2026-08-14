@@ -5,7 +5,7 @@
  */
 import { app, BrowserWindow } from 'electron';
 import { writeFileSync } from 'node:fs';
-import { DESKTOP_CSS, TITLEBAR_SCRIPT } from '../dist/main/window/desktopChrome.js';
+import { DESKTOP_CSS, DSH_HEADER_DRAG_SCRIPT, FLOATING_CONTROLS_SCRIPT } from '../dist/main/window/desktopChrome.js';
 
 const OUT = process.argv[2] ?? 'out/dsh-capture.png';
 const WAIT = Number(process.argv[3] ?? 5000);
@@ -20,7 +20,8 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadURL('http://127.0.0.1:3080');
-    await win.webContents.executeJavaScript(TITLEBAR_SCRIPT);
+    await win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT);
+    await win.webContents.executeJavaScript(DSH_HEADER_DRAG_SCRIPT);
     await win.webContents.insertCSS(DESKTOP_CSS);
     await new Promise((resolve) => setTimeout(resolve, WAIT));
     const img = await win.webContents.capturePage();
