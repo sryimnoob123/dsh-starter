@@ -27,6 +27,7 @@ import { callRpc } from './service/rpc.js';
 import { DESKTOP_CSS, TITLEBAR_SCRIPT } from './window/desktopChrome.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
 import { normalizeWindowBounds } from './window/bounds.js';
+import { buildCompactPayload, describeCompactFeedback, parseCurrentSessionId } from './commands/compact.js';
 import {
   buildDesktopPatchYaml,
   globalAgentsPath,
@@ -118,6 +119,16 @@ trayItems.register({
   title: '停止服务',
   order: 20,
   click: ({ stopService }) => stopService(),
+});
+
+trayItems.register({
+  id: 'compact',
+  title: '压缩上下文',
+  order: 25,
+  click: ({ window }) => {
+    // [FR-27] 常用指令一键入口：/compact 斜杠命令（session.prompt 官方通道），结果回显在会话里
+    void runCompactCommand(window);
+  },
 });
 
 trayItems.register({
@@ -274,6 +285,51 @@ function notify(candidate: { type: 'result'; sessionId: string; title: string })
     }
   });
   n.show();
+}
+
+/** 托盘快捷操作的反馈通知（用户主动点击的即时回执，不受任务结果通知开关影响） */
+function showActionNotice(body: string): void {
+  if (!Notification.isSupported()) return;
+  new Notification({ title: 'deepseekharness', body }).show();
+}
+
+/** 从 DSH 页面 localStorage 读当前会话 id（与通知定位同一契约；非 DSH 页面 → null） */
+async function readCurrentSessionId(win: BrowserWindow): Promise<string | null> {
+  try {
+    if (!isDshAppUrl(win.webContents.getURL())) return null;
+    const raw = (await win.webContents.executeJavaScript(
+      'localStorage.getItem("dsh.sessions.current")',
+    )) as unknown;
+    return parseCurrentSessionId(typeof raw === 'string' ? raw : null);
+  } catch {
+    return null;
+  }
+}
+
+/** [FR-27] 托盘"压缩上下文"：session.prompt 发 /compact 斜杠命令（DSH 宿主执行，不进模型轮次） */
+async function runCompactCommand(win: BrowserWindow): Promise<void> {
+  const sessionId = await readCurrentSessionId(win);
+  if (!sessionId) {
+    showActionNotice('没有当前会话：先打开一个会话，再执行压缩。');
+    return;
+  }
+  const port = getStore().load().port ?? 3080;
+  try {
+    const value = await callRpc({ port, method: 'session.prompt', payload: buildCompactPayload(sessionId) });
+    writeLog('shell', `compact command accepted for ${sessionId}`);
+    const text = describeCompactFeedback(value);
+    const body =
+      text === 'No compactable history yet.'
+        ? '还没有可压缩的历史。'
+        : text
+          ? `压缩完成：${text}`
+          : '压缩指令已发送，结果会显示在会话里。';
+    showActionNotice(body);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    writeLog('shell', `compact command failed: ${detail}`);
+    showActionNotice(`压缩失败：${detail}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

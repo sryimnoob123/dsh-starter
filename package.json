@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "deepseekharness",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "DeepSeek Harness desktop client (Electron shell). Independent open-source project.",
   "license": "MIT",
   "author": "dsh-desktop contributors",
