@@ -50,6 +50,7 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
  * header 内交互元素 no-drag；右侧留 140px 给悬浮按钮。MutationObserver 兜底 SPA 视图切换。
  */
 export const DSH_HEADER_DRAG_SCRIPT = `(function () {
+  var timer = null;
   function apply() {
     var h = document.querySelector('header');
     if (!h) return;
@@ -67,8 +68,13 @@ export const DSH_HEADER_DRAG_SCRIPT = `(function () {
       el.style.setProperty('-webkit-app-region', 'no-drag');
     });
   }
-  apply();
-  new MutationObserver(apply).observe(document.body, { childList: true, subtree: true });
+  function schedule() {
+    // 防抖：活跃会话事件流高频重渲染，全量查询每帧跑太费——合并到 120ms 一批
+    if (timer) return;
+    timer = setTimeout(function () { timer = null; apply(); }, 120);
+  }
+  schedule();
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
 })();`;
 
 /** 壳本地页（file://）顶部透明拖拽条（右上角让出悬浮按钮） */
@@ -102,8 +108,14 @@ export const VIEW_TAB_SCRIPT = `(function () {
       s.style.display = traj ? 'none' : '';
     });
   }
-  update();
-  new MutationObserver(update).observe(document.body, {
+  var timer = null;
+  function schedule() {
+    // 防抖：与拖拽区脚本同款——活跃会话高频重渲染时合并查询
+    if (timer) return;
+    timer = setTimeout(function () { timer = null; update(); }, 120);
+  }
+  schedule();
+  new MutationObserver(schedule).observe(document.body, {
     childList: true,
     subtree: true,
     attributes: true,

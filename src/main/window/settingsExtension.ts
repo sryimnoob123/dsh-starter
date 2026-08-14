@@ -329,6 +329,12 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
   }
 
   attach();
-  new MutationObserver(attach).observe(document.body, { childList: true, subtree: true });
+  var extTimer = null;
+  function extSchedule() {
+    // 防抖：DSH 活跃会话高频重渲染，attach 合并到 200ms 一批（另保留 1.5s 兜底轮询）
+    if (extTimer) return;
+    extTimer = setTimeout(function () { extTimer = null; attach(); }, 200);
+  }
+  new MutationObserver(extSchedule).observe(document.body, { childList: true, subtree: true });
   setInterval(attach, 1500);
 })();`;
