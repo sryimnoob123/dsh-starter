@@ -47,7 +47,7 @@ export interface ShellOps {
   /** 提示词管理：读取当前设置与全局指令文件（[FR-16]） */
   getPromptSettings(): PromptSettingsState;
   /** 提示词管理：保存身份开关/persona/全局指令；restart=true 时重启壳拉起的服务以应用 --patch */
-  savePromptSettings(input: { includeHarnessIdentity: boolean; persona: string; globalPrompt: string; restart: boolean }): Promise<SavePromptSettingsResult>;
+  savePromptSettings(input: { includeHarnessIdentity: boolean; persona: string; globalPrompt: string; restart: boolean; notifyResult?: boolean }): Promise<SavePromptSettingsResult>;
   /** 窗口控制（自绘标题栏 [D84]：minimize / toggle-maximize / close=缩托盘） */
   windowControl(action: WindowAction): void;
 }

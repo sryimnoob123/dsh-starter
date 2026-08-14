@@ -5,6 +5,7 @@ import {
   parseInstallPhase,
   parseLogKind,
   parsePort,
+  parsePromptSettingsInput,
   parseWindowAction,
 } from './contract.js';
 
@@ -113,5 +114,38 @@ describe('parseWindowAction（自绘标题栏按钮动作）', () => {
 
   it.each(['maximize', 'quit', 'resize', '', 1, null])('拒绝非法动作 %o', (v) => {
     expect(parseWindowAction(v)).toBeNull();
+  });
+});
+
+describe('parsePromptSettingsInput（设置页保存载荷，[FR-16]/[FR-4.3]）', () => {
+  const valid = {
+    includeHarnessIdentity: false,
+    persona: 'hi',
+    globalPrompt: '# rules',
+    restart: true,
+  };
+
+  it('接受完整载荷并透传通知开关', () => {
+    expect(parsePromptSettingsInput({ ...valid, notifyResult: false })).toEqual({
+      ...valid,
+      notifyResult: false,
+    });
+  });
+
+  it('notifyResult 可省略（旧页面向后兼容）', () => {
+    expect(parsePromptSettingsInput(valid)).toEqual(valid);
+  });
+
+  it.each([
+    [null],
+    [{ ...valid, includeHarnessIdentity: 'no' }],
+    [{ ...valid, persona: 7 }],
+    [{ ...valid, persona: 'x'.repeat(20_001) }],
+    [{ ...valid, globalPrompt: 5 }],
+    [{ ...valid, globalPrompt: 'x'.repeat(1_000_001) }],
+    [{ ...valid, restart: 1 }],
+    [{ ...valid, notifyResult: 'yes' }],
+  ])('拒绝非法载荷 %o', (v) => {
+    expect(parsePromptSettingsInput(v)).toBeNull();
   });
 });

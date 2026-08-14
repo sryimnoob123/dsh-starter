@@ -26,6 +26,7 @@ import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import { DESKTOP_CSS, TITLEBAR_SCRIPT } from './window/desktopChrome.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
+import { normalizeWindowBounds } from './window/bounds.js';
 import {
   buildDesktopPatchYaml,
   globalAgentsPath,
@@ -256,6 +257,8 @@ function subscribeEvents(port: number): void {
 
 function notify(candidate: { type: 'result'; sessionId: string; title: string }): void {
   if (!Notification.isSupported()) return;
+  // [FR-4.3] 通知类型开关：设置页"通知"组关闭后不再弹（默认开）
+  if (getStore().load().notifications?.result === false) return;
   const n = new Notification({ title: 'deepseekharness', body: candidate.title });
   n.on('click', () => {
     // 唤起窗口；主界面已加载时定位到对应会话：写入 dsh.sessions.current 后 reload，
@@ -419,6 +422,36 @@ async function startShell(win: BrowserWindow): Promise<void> {
   }
 }
 
+/** 窗口位置/尺寸记忆（细化文档 FR-1）：套用上次持久化的状态（脏数据经 bounds.ts 归一） */
+function applySavedBounds(win: BrowserWindow): void {
+  const saved = getStore().load().window;
+  const bounds = normalizeWindowBounds(saved, { width: 1280, height: 800, maximized: false });
+  win.setBounds({ width: bounds.width, height: bounds.height });
+  if (bounds.maximized) win.maximize();
+}
+
+/** 移动/缩放/最大化 → 500ms 防抖后落盘（normalBounds 记录还原尺寸，maximized 记录状态） */
+function watchBounds(win: BrowserWindow): void {
+  let timer: NodeJS.Timeout | null = null;
+  const persist = (): void => {
+    timer = null;
+    if (win.isDestroyed()) return;
+    const store = getStore();
+    const config = store.load();
+    const normal = win.getNormalBounds();
+    config.window = { width: normal.width, height: normal.height, maximized: win.isMaximized() };
+    store.save(config);
+  };
+  const schedule = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(persist, 500);
+  };
+  win.on('resize', schedule);
+  win.on('move', schedule);
+  win.on('maximize', schedule);
+  win.on('unmaximize', schedule);
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -439,6 +472,9 @@ function createWindow(): BrowserWindow {
     },
   });
   mainWindow = win;
+  // [FR-1] 窗口位置/尺寸记忆：启动套用上次状态，移动/缩放/最大化防抖落盘
+  applySavedBounds(win);
+  watchBounds(win);
   win.on('close', (event) => {
     // 关窗缩托盘（[FR-3.1]）：应用不退出、服务继续
     event.preventDefault();
@@ -693,6 +729,7 @@ const shellOps: ShellOps = {
   getPromptSettings: () => {
     const config = getStore().load();
     const prompt = normalizePromptConfig(config.prompt);
+    const notifyResult = config.notifications?.result ?? true;
     if (reuseMode) {
       // 复用外部服务：路径由其环境决定，三项均不可接管（[D75] 显式提示，不静默）
       return {
@@ -701,6 +738,7 @@ const shellOps: ShellOps = {
         persona: prompt.persona,
         globalPrompt: '',
         globalPromptPath: null,
+        notifyResult,
       };
     }
     const path = globalAgentsPath(app.getPath('userData'));
@@ -716,17 +754,29 @@ const shellOps: ShellOps = {
       persona: prompt.persona,
       globalPrompt,
       globalPromptPath: path,
+      notifyResult,
     };
   },
   savePromptSettings: async (input) => {
+    // [FR-4.3] 通知开关是壳自己的配置：两种模式下都能保存、即时生效（notify() 每次读取）
+    const notifyResult = input.notifyResult;
+    const notifyChanged = notifyResult !== undefined;
+    if (notifyChanged) {
+      const notifyStore = getStore();
+      const notifyConfig = notifyStore.load();
+      notifyConfig.notifications = { result: notifyResult };
+      notifyStore.save(notifyConfig);
+    }
     if (reuseMode) {
-      return {
-        ok: false,
-        restarting: false,
-        message:
-          '当前复用外部 DSH 服务：身份注入 / persona / 全局指令由该服务的环境决定，桌面端无法接管。' +
-          '如需接管：在原处停止外部服务，再回到桌面重新启动（会自动拉起自己的服务）。',
-      };
+      return notifyChanged
+        ? { ok: true, restarting: false, message: '已保存。通知开关即时生效。' }
+        : {
+            ok: false,
+            restarting: false,
+            message:
+              '当前复用外部 DSH 服务：身份注入 / persona / 全局指令由该服务的环境决定，桌面端无法接管。' +
+              '如需接管：在原处停止外部服务，再回到桌面重新启动（会自动拉起自己的服务）。',
+          };
     }
     try {
       const store = getStore();

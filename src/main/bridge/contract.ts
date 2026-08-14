@@ -59,6 +59,8 @@ export interface PromptSettingsState {
   globalPrompt: string;
   /** 全局指令文件路径；reuse 模式为 null（路径由外部服务的环境决定） */
   globalPromptPath: string | null;
+  /** 任务结果桌面通知开关（[FR-4.3] 类型开关；默认开） */
+  notifyResult: boolean;
 }
 
 export interface SavePromptSettingsResult {
@@ -78,6 +80,7 @@ export function parsePromptSettingsInput(raw: unknown): {
   persona: string;
   globalPrompt: string;
   restart: boolean;
+  notifyResult?: boolean;
 } | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const obj = raw as Record<string, unknown>;
@@ -87,12 +90,24 @@ export function parsePromptSettingsInput(raw: unknown): {
     return null;
   }
   if (typeof obj.restart !== 'boolean') return null;
-  return {
+  const input: {
+    includeHarnessIdentity: boolean;
+    persona: string;
+    globalPrompt: string;
+    restart: boolean;
+    notifyResult?: boolean;
+  } = {
     includeHarnessIdentity: obj.includeHarnessIdentity,
     persona: obj.persona,
     globalPrompt: obj.globalPrompt,
     restart: obj.restart,
   };
+  // 通知开关可选（向后兼容旧页面不传）；类型不对 = 整个载荷非法
+  if (obj.notifyResult !== undefined) {
+    if (typeof obj.notifyResult !== 'boolean') return null;
+    input.notifyResult = obj.notifyResult;
+  }
+  return input;
 }
 
 /**

@@ -165,6 +165,15 @@
         <p style="margin:10px 0 0"><button class="link" id="personaReset" type="button"></button></p>
       </section>
 
+      <section class="group" id="groupNotify">
+        <h2><span id="gNotifyTitle"></span><span class="tag" id="gNotifyTag"></span></h2>
+        <p class="hint" id="gNotifyHint"></p>
+        <label class="toggle">
+          <input type="checkbox" id="notifyToggle" />
+          <span id="gNotifyLabel"></span>
+        </label>
+      </section>
+
       <section class="group" id="groupTemplates">
         <h2><span id="gTemplatesTitle"></span><span class="tag" id="gTemplatesTag"></span></h2>
         <div class="note" id="gTemplatesNote"></div>
@@ -192,7 +201,7 @@
           title: '设置',
           lede: '这里管理系统提示词的注入方式。改动只影响桌面端自己拉起的服务；保存即生效。',
           reuseBanner:
-            '当前复用的是外部 DSH 服务：下面这些设置由那个服务的环境决定，桌面端无法接管。如需接管：在原处停止外部服务，再回到桌面重新启动。',
+            '当前复用的是外部 DSH 服务：身份注入 / persona / 全局指令由那个服务的环境决定，桌面端无法接管（通知开关除外，仍可在这里设置）。如需接管：在原处停止外部服务，再回到桌面重新启动。',
           preview: '预览模式：未连接壳，编辑不会保存。',
           gGlobalTitle: '全局系统提示词',
           gGlobalTag: '所见即所注入',
@@ -208,6 +217,10 @@
           gPersonaTag: '重启生效',
           gPersonaHint:
             '拼接在系统提示词里的常驻段落。支持 {{model}}（当前模型）与 {{cwd}}（工作目录）变量；留空 = 不注入 persona。',
+          gNotifyTitle: '通知',
+          gNotifyTag: '即时生效',
+          gNotifyHint: '任务完成 / 失败时弹桌面通知。关闭后静音，服务与窗口不受影响。',
+          gNotifyLabel: '任务结果通知',
           gTemplatesTitle: '内置流程模板',
           gTemplatesTag: '暂不支持',
           gTemplatesNote:
@@ -226,7 +239,7 @@
           title: 'Settings',
           lede: 'Control how the system prompt is injected. Changes only affect the service started by this app and apply immediately on save.',
           reuseBanner:
-            'An external DSH service is being reused: these settings belong to that service and cannot be taken over from here. To take over, stop the external service where it was started, then restart from this app.',
+            'An external DSH service is being reused: identity / persona / global instructions belong to that service and cannot be taken over from here (except the notification switch, which still works). To take over, stop the external service where it was started, then restart from this app.',
           preview: 'Preview mode: no shell connected, edits are not saved.',
           gGlobalTitle: 'Global system prompt',
           gGlobalTag: 'WYSIWYG',
@@ -242,6 +255,10 @@
           gPersonaTag: 'needs restart',
           gPersonaHint:
             'A standing paragraph appended to the system prompt. Supports the {{model}} and {{cwd}} variables; empty = no persona injected.',
+          gNotifyTitle: 'Notifications',
+          gNotifyTag: 'applies immediately',
+          gNotifyHint: 'Desktop notifications when a job finishes or fails. Turning them off silences them without affecting the service or the window.',
+          gNotifyLabel: 'Job result notifications',
           gTemplatesTitle: 'Built-in flow templates',
           gTemplatesTag: 'not supported yet',
           gTemplatesNote:
@@ -268,6 +285,8 @@
         gIdentityLabel: $('gIdentityLabel'), identityToggle: $('identityToggle'), identityReset: $('identityReset'),
         gPersonaTitle: $('gPersonaTitle'), gPersonaTag: $('gPersonaTag'), gPersonaHint: $('gPersonaHint'),
         persona: $('persona'), personaReset: $('personaReset'),
+        gNotifyTitle: $('gNotifyTitle'), gNotifyTag: $('gNotifyTag'), gNotifyHint: $('gNotifyHint'),
+        gNotifyLabel: $('gNotifyLabel'), notifyToggle: $('notifyToggle'),
         gTemplatesTitle: $('gTemplatesTitle'), gTemplatesTag: $('gTemplatesTag'), gTemplatesNote: $('gTemplatesNote'),
         saveBtn: $('saveBtn'), saveRestartBtn: $('saveRestartBtn'), status: $('status'),
       };
@@ -289,6 +308,10 @@
         el.gPersonaTag.textContent = t.gPersonaTag;
         el.gPersonaHint.textContent = t.gPersonaHint;
         el.personaReset.textContent = t.personaReset;
+        el.gNotifyTitle.textContent = t.gNotifyTitle;
+        el.gNotifyTag.textContent = t.gNotifyTag;
+        el.gNotifyHint.textContent = t.gNotifyHint;
+        el.gNotifyLabel.textContent = t.gNotifyLabel;
         el.gTemplatesTitle.textContent = t.gTemplatesTitle;
         el.gTemplatesTag.textContent = t.gTemplatesTag;
         el.gTemplatesNote.textContent = t.gTemplatesNote;
@@ -318,6 +341,7 @@
           includeHarnessIdentity: el.identityToggle.checked,
           persona: el.persona.value,
           globalPrompt: el.globalPrompt.value,
+          notifyResult: el.notifyToggle.checked,
           restart,
         };
       }
@@ -361,6 +385,7 @@
           if (!state) throw new Error('empty state');
           el.identityToggle.checked = Boolean(state.includeHarnessIdentity);
           el.persona.value = typeof state.persona === 'string' ? state.persona : WEB_BASE_PERSONA;
+          el.notifyToggle.checked = state.notifyResult !== false;
           if (state.mode === 'managed') {
             el.globalPrompt.value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
             el.globalPath.textContent = state.globalPromptPath || '';
@@ -368,7 +393,7 @@
             el.reuseBanner.hidden = false;
             el.globalPath.textContent = '';
             setEditable(false);
-            el.saveBtn.disabled = true;
+            // 通知开关是壳自己的配置，外部服务模式下仍可保存；重启按钮禁用（外部服务不接管）
             el.saveRestartBtn.disabled = true;
           }
         } catch (error) {
