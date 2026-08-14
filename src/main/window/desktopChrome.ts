@@ -150,4 +150,12 @@ export const PAGE_THEME_CSS =
   + '::-webkit-scrollbar-thumb{background:var(--dsh-desktop-scroll-thumb,oklch(0.32 0.03 50 / 0.4));border-radius:6px;border:2px solid transparent;background-clip:padding-box;}'
   + '::-webkit-scrollbar-thumb:hover{background:var(--dsh-desktop-scroll-thumb-hover,oklch(0.32 0.03 50 / 0.6));background-clip:padding-box;}'
   + '::-webkit-scrollbar-track{background:transparent;}'
-  + '::-webkit-scrollbar-corner{background:transparent;}';
+  + '::-webkit-scrollbar-corner{background:transparent;}'
+  // OC 排版语言统一（壳本地页共享；提示词设置页已按 OC 原生重建，其 .oc-* 类优先级更高不受影响）：
+  // 9px 圆角、18px 静音页题（OC L1 = 比 section 更安静）、36px 主按钮、输入 9px 圆角、柔和阴影。
+  // 注意：insertCSS 是 inspector 表，在作者表里排序靠前，同特异性赢不了页面自身规则——
+  // 用 body 前缀提高特异性（0,1,1 > 0,1,0），与顺序无关。
+  + 'body .card{border-radius:9px;box-shadow:0 6px 20px rgba(0,0,0,0.22);}'
+  + 'body h1{font-size:18px;font-weight:600;color:var(--text-2,oklch(0.75 0.02 80));}'
+  + 'body .btn{min-height:36px;border-radius:9px;}'
+  + 'body input,body select,body textarea{border-radius:9px;}';

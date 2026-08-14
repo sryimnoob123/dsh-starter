@@ -723,7 +723,17 @@ function createWindow(): BrowserWindow {
   // 开发调试（DSH_DEV_ALLOW_FILE=1，默认关闭）：页面导航到壳本地页时，由主进程
   // 代用 loadFile 加载（绕过 Chromium 对 http→file 导航的封锁），供自跑验收截图。
   win.webContents.on('will-navigate', (event, url) => {
+    writeLog('shell', `will-navigate: ${url}`);
     if (isAllowedNavigationUrl(url)) return;
+    // 开发调试（DSH_DEV_ALLOW_FILE=1，默认关闭）：壳本地页之间互跳放行，
+    // 供自跑验收逐页截图（http→file 仍被 Chromium 拦，由下方主进程代载）
+    if (
+      process.env.DSH_DEV_ALLOW_FILE === '1' &&
+      url.startsWith('file://') &&
+      win.webContents.getURL().startsWith('file://')
+    ) {
+      return;
+    }
     if (process.env.DSH_DEV_ALLOW_FILE === '1' && url.startsWith('file://')) {
       event.preventDefault();
       try {
@@ -763,6 +773,7 @@ function createWindow(): BrowserWindow {
   // 壳本地页：顶部透明拖拽条 + 主题初始化脚本（?uiTheme=）+ 深浅滚动条/悬浮按钮变量。
   win.webContents.on('did-finish-load', () => {
     const url = win.webContents.getURL();
+    writeLog('shell', `did-finish-load: ${url}`);
     if (url.startsWith('file://')) {
       win.webContents.executeJavaScript(PAGE_THEME_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
@@ -860,6 +871,7 @@ function loadNotificationsPage(win: BrowserWindow): Promise<void> {
 
 /** 返回对话主界面（设置/通知/日志页"返回对话"；未完成首启向导时回向导） */
 function loadMain(win: BrowserWindow): Promise<void> {
+  writeLog('shell', 'loadMain called');
   const config = getStore().load();
   if (config.onboardingDone) {
     return loadUrl(win, `http://127.0.0.1:${config.port ?? 3080}`);
@@ -973,6 +985,7 @@ async function runInstallFlow(win: BrowserWindow, dir: string): Promise<void> {
 // ---------------------------------------------------------------------------
 const shellOps: ShellOps = {
   retry: async () => {
+    writeLog('shell', 'retry op called');
     const win = mainWindow ?? createWindow();
     // onboarding 的"开始使用"= retry：先落完成标记，再走启动序列进主界面
     if (win.webContents.getURL().includes('onboarding.html')) {
@@ -1006,6 +1019,7 @@ const shellOps: ShellOps = {
   },
   openMain: () => {
     // 设置/通知/日志页的"返回对话"
+    writeLog('shell', 'openMain op called');
     const win = mainWindow ?? createWindow();
     void loadMain(win);
   },
