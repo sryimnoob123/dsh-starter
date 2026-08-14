@@ -5,7 +5,6 @@ DeepSeek Harness 的桌面客户端 —— 一个极简的 Electron 壳，把官
 [English](#english) · [中文](#中文)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/sryimnoob123/dsh-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/sryimnoob123/dsh-starter/actions/workflows/ci.yml)
 
 ---
 
