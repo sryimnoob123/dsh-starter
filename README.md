@@ -28,7 +28,7 @@ Early stage (MVP). The shell core is implemented and covered by **263 tests**. S
 
 - 🪟 Frameless window + self-drawn titlebar (minimize / maximize / close-to-tray)
 - 🌙 Dark theme
-- 📌 System tray menu (open / stop service / view logs / quit)
+- 📌 System tray menu (open / stop service / logs / settings / check updates / help / quit)
 - ⚡ Quick actions — one-click "Compact context" tray shortcut for the current session
 - 🔔 Desktop notifications for finished / failed jobs
 - 🐶 Stall watchdog — system notification when a job shows no activity for 5 minutes (independent of the agent itself)
@@ -85,7 +85,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 - 🪟 无边框窗口 + 自绘标题栏（最小化 / 最大化 / 关闭缩到托盘）
 - 🌙 深色主题
-- 📌 系统托盘菜单（打开 / 停止服务 / 查看日志 / 退出）
+- 📌 系统托盘菜单（打开 / 停止服务 / 日志 / 设置 / 检查更新 / 帮助 / 退出）
 - ⚡ 快捷操作 —— 托盘一键"压缩上下文"（当前会话）
 - 🔔 任务完成 / 失败桌面通知
 - 🐶 卡住看门狗 —— 任务 5 分钟无活动时系统通知（独立于 agent 本身）

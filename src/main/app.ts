@@ -16,7 +16,7 @@ import { diffJobs, type JobStatus } from './events/catchup.js';
 import { redact, buildLogLine } from './logging/redact.js';
 import { readLogTail } from './logging/readLog.js';
 import { logFile } from './logging/paths.js';
-import { setupAutoUpdater } from './updater/index.js';
+import { setupAutoUpdater, checkForUpdatesManually } from './updater/index.js';
 import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from './bridge/register.js';
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
@@ -163,8 +163,28 @@ trayItems.register({
 trayItems.register({
   id: 'quit',
   title: '退出',
-  order: 40,
+  order: 50,
   click: ({ quit }) => quit(),
+});
+
+trayItems.register({
+  id: 'check-updates',
+  title: '检查更新',
+  order: 45,
+  click: () => {
+    // [FR-27] 手动检查更新：打包版走发布通道，结果以通知回执
+    checkForUpdatesManually();
+  },
+});
+
+trayItems.register({
+  id: 'help',
+  title: '帮助',
+  order: 46,
+  click: () => {
+    // [FR-21] 帮助入口：打开 GitHub README（安装/使用/开发说明都在里面）
+    void shell.openExternal('https://github.com/sryimnoob123/dsh-starter#readme');
+  },
 });
 
 // ---------------------------------------------------------------------------

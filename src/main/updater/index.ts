@@ -1,7 +1,10 @@
-import { dialog, Notification } from 'electron';
+import { app, dialog, Notification } from 'electron';
 import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
+
+/** 手动检查标记：'update-not-available' 只在用户主动点"检查更新"时提示，避免每次启动打扰 */
+let manualCheckPending = false;
 
 /**
  * 自动更新（[D78]，取代 [D15]）：自动检查更新 + 自动下载；安装由用户确认。
@@ -20,11 +23,33 @@ export function setupAutoUpdater(): void {
     notification.show();
   });
 
+  autoUpdater.on('update-not-available', () => {
+    if (!manualCheckPending) return;
+    manualCheckPending = false;
+    new Notification({ title: 'deepseekharness', body: '已是最新版本。' }).show();
+  });
+
   autoUpdater.on('error', () => {
     // 静默：发布源未配置或网络失败时不影响使用
+    manualCheckPending = false;
   });
 
   autoUpdater.checkForUpdates().catch(() => undefined);
+}
+
+/**
+ * 托盘"检查更新"（[FR-27] 常用指令入口）：手动触发一次检查；
+ * 打包版走发布通道；开发模式直接提示（发布通道仅打包版可用）。
+ */
+export function checkForUpdatesManually(): void {
+  if (!app.isPackaged) {
+    new Notification({ title: 'deepseekharness', body: '开发模式不检查更新（发布通道仅打包版可用）。' }).show();
+    return;
+  }
+  manualCheckPending = true;
+  autoUpdater.checkForUpdates().catch(() => {
+    manualCheckPending = false;
+  });
 }
 
 export async function promptInstall(version: string): Promise<void> {
