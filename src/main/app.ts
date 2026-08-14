@@ -38,6 +38,11 @@ import {
   type StallTrackerState,
 } from './watchdog/stall.js';
 import {
+  appendNotificationEntry,
+  clearNotificationHistory,
+  readNotificationHistory,
+} from './notify/history.js';
+import {
   buildDesktopPatchYaml,
   globalAgentsPath,
   normalizePromptConfig,
@@ -54,6 +59,7 @@ const INSTALL_PAGE = join(__dirname, 'pages', 'install-wizard.html');
 const ONBOARDING_PAGE = join(__dirname, 'pages', 'onboarding.html');
 const LOGS_PAGE = join(__dirname, 'pages', 'logs.html');
 const PROMPT_SETTINGS_PAGE = join(__dirname, 'pages', 'prompt-settings.html');
+const NOTIFICATIONS_PAGE = join(__dirname, 'pages', 'notifications.html');
 const PRELOAD = join(__dirname, 'bridge', 'preload.cjs');
 const DEFAULT_PATCH = join(__dirname, '..', '..', 'assets', 'desktop.patch.yml');
 const ICON = join(__dirname, '..', '..', 'assets', 'icon.png');
@@ -147,6 +153,16 @@ trayItems.register({
   click: ({ window }) => {
     // [D21]：托盘"查看日志"= 壳内日志页（壳日志 + 服务日志），不是打开文件夹
     void loadLogsPage(window);
+  },
+});
+
+trayItems.register({
+  id: 'notifications',
+  title: '通知',
+  order: 32,
+  click: ({ window }) => {
+    // [D31] 通知历史中心：错过弹窗也能回看，可一键清空
+    void loadNotificationsPage(window);
   },
 });
 
@@ -357,12 +373,27 @@ function notify(candidate: { type: 'result'; sessionId: string; title: string })
     }
   });
   n.show();
+  // [D31] 通知历史：所有任务结果通知落盘（脱敏后），托盘"通知"可回看
+  try {
+    appendNotificationEntry(app.getPath('userData'), {
+      time: Date.now(),
+      title: 'deepseekharness',
+      body: redact(candidate.title),
+    });
+  } catch {
+    // 历史落盘失败不影响通知本身
+  }
 }
 
 /** 托盘快捷操作的反馈通知（用户主动点击的即时回执，不受任务结果通知开关影响） */
 function showActionNotice(body: string): void {
   if (!Notification.isSupported()) return;
   new Notification({ title: 'deepseekharness', body }).show();
+  try {
+    appendNotificationEntry(app.getPath('userData'), { time: Date.now(), title: 'deepseekharness', body: redact(body) });
+  } catch {
+    // 历史落盘失败不影响通知本身
+  }
 }
 
 /** 从 DSH 页面 localStorage 读当前会话 id（与通知定位同一契约；非 DSH 页面 → null） */
@@ -694,6 +725,11 @@ function loadPromptSettings(win: BrowserWindow): Promise<void> {
   return win.loadFile(PROMPT_SETTINGS_PAGE, { query: { lang: 'zh' } }).catch(() => undefined);
 }
 
+/** 通知历史页（[D31]：回看/清空） */
+function loadNotificationsPage(win: BrowserWindow): Promise<void> {
+  return win.loadFile(NOTIFICATIONS_PAGE, { query: { lang: 'zh' } }).catch(() => undefined);
+}
+
 /** 用户级 --patch overlay（[FR-16]：身份/persona 设置落这里；无则用打包默认基线） */
 function userPatchFile(): string {
   return join(app.getPath('userData'), 'desktop.patch.yml');
@@ -952,6 +988,8 @@ const shellOps: ShellOps = {
       message: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
     };
   },
+  readNotifications: () => readNotificationHistory(app.getPath('userData'), 500),
+  clearNotifications: () => clearNotificationHistory(app.getPath('userData')),
 };
 
 // ---------------------------------------------------------------------------

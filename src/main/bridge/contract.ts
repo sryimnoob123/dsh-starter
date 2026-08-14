@@ -7,6 +7,13 @@
  * - 校验器在主进程与 preload 两侧共用口径，防止页面传垃圾数据进主进程。
  */
 
+/** 通知历史条目（[D31] 通知历史中心；与 notify/history.ts 的 NotificationEntry 同形） */
+export interface NotificationHistoryEntry {
+  time: number;
+  title: string;
+  body: string;
+}
+
 /** 日志类型（logs.html 的 log= 参数与 readLog 入参） */
 export type LogKind = 'shell' | 'service';
 
@@ -134,6 +141,9 @@ export const BRIDGE_API = {
   // ---- 提示词管理（FR-16） ----
   getPromptSettings: 'dsh:getPromptSettings',
   savePromptSettings: 'dsh:savePromptSettings',
+  // ---- 通知历史（[D31]） ----
+  readNotifications: 'dsh:readNotifications',
+  clearNotifications: 'dsh:clearNotifications',
   // ---- 事件订阅（壳 → 页面） ----
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',
