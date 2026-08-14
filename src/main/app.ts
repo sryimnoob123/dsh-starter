@@ -31,6 +31,7 @@ import {
   PAGE_DRAG_SCRIPT,
   PAGE_THEME_CSS,
   PAGE_THEME_SCRIPT,
+  VIEW_TAB_SCRIPT,
 } from './window/desktopChrome.js';
 import { CODEX_SKIN_CSS } from './window/codexSkin.js';
 import { SETTINGS_EXTENSION_SCRIPT } from './window/settingsExtension.js';
@@ -770,6 +771,7 @@ function createWindow(): BrowserWindow {
     } else if (url.startsWith('http://127.0.0.1')) {
       win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(DSH_HEADER_DRAG_SCRIPT).catch(() => undefined);
+      win.webContents.executeJavaScript(VIEW_TAB_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(DESKTOP_CSS).catch(() => undefined);
       win.webContents.insertCSS(CODEX_SKIN_CSS).catch(() => undefined);
       // 官方设置扩展：所有壳新设置都作为选项放进 DSH 自带设置（用户拍板）
