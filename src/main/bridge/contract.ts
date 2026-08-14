@@ -44,6 +44,57 @@ export interface ConnectionResult {
   message: string;
 }
 
+// ---------------------------------------------------------------------------
+// 提示词管理（FR-16 V1：身份注入开关 + persona + 全局指令文件；设置页契约）
+// ---------------------------------------------------------------------------
+
+/** managed = 壳拉起服务（--patch 与 DSH_HOME 归壳管，三项都可编辑）；reuse = 复用外部服务（只读引导） */
+export type PromptMode = 'managed' | 'reuse';
+
+export interface PromptSettingsState {
+  mode: PromptMode;
+  includeHarnessIdentity: boolean;
+  persona: string;
+  /** 全局指令文件当前内容；reuse 模式为空串 */
+  globalPrompt: string;
+  /** 全局指令文件路径；reuse 模式为 null（路径由外部服务的环境决定） */
+  globalPromptPath: string | null;
+}
+
+export interface SavePromptSettingsResult {
+  ok: boolean;
+  /** 一句话结果（页面直接展示） */
+  message: string;
+  /** 是否触发了服务重启（页面可提示"正在重启"） */
+  restarting: boolean;
+}
+
+/**
+ * 校验设置页保存载荷。上限：persona 2 万字符、全局指令 1MB UTF-8 字节
+ * （对齐 agent-instructions 默认 maxSourceBytes ≈ 1MB，超限文件会被 DSH 忽略）。
+ */
+export function parsePromptSettingsInput(raw: unknown): {
+  includeHarnessIdentity: boolean;
+  persona: string;
+  globalPrompt: string;
+  restart: boolean;
+} | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.includeHarnessIdentity !== 'boolean') return null;
+  if (typeof obj.persona !== 'string' || obj.persona.length > 20_000) return null;
+  if (typeof obj.globalPrompt !== 'string' || Buffer.byteLength(obj.globalPrompt, 'utf8') > 1_000_000) {
+    return null;
+  }
+  if (typeof obj.restart !== 'boolean') return null;
+  return {
+    includeHarnessIdentity: obj.includeHarnessIdentity,
+    persona: obj.persona,
+    globalPrompt: obj.globalPrompt,
+    restart: obj.restart,
+  };
+}
+
 /**
  * window.dshShell 方法 ↔ IPC 通道映射。
  * 前 10 项是 invoke（页面 → 壳，返回 Promise）；后 2 项是事件订阅（壳 → 页面）。
@@ -64,6 +115,9 @@ export const BRIDGE_API = {
   testConnection: 'dsh:testConnection',
   saveConnection: 'dsh:saveConnection',
   discoverModels: 'dsh:discoverModels',
+  // ---- 提示词管理（FR-16） ----
+  getPromptSettings: 'dsh:getPromptSettings',
+  savePromptSettings: 'dsh:savePromptSettings',
   // ---- 事件订阅（壳 → 页面） ----
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',

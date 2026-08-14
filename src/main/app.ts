@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, Menu, Notification, shell, Tray } from 'electron';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -26,6 +26,11 @@ import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import { DESKTOP_CSS, TITLEBAR_SCRIPT } from './window/desktopChrome.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
+import {
+  buildDesktopPatchYaml,
+  globalAgentsPath,
+  normalizePromptConfig,
+} from './prompt/promptSettings.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +42,7 @@ const PORT_PROMPT_PAGE = join(__dirname, 'pages', 'port-prompt.html');
 const INSTALL_PAGE = join(__dirname, 'pages', 'install-wizard.html');
 const ONBOARDING_PAGE = join(__dirname, 'pages', 'onboarding.html');
 const LOGS_PAGE = join(__dirname, 'pages', 'logs.html');
+const PROMPT_SETTINGS_PAGE = join(__dirname, 'pages', 'prompt-settings.html');
 const PRELOAD = join(__dirname, 'bridge', 'preload.cjs');
 const DEFAULT_PATCH = join(__dirname, '..', '..', 'assets', 'desktop.patch.yml');
 const ICON = join(__dirname, '..', '..', 'assets', 'icon.png');
@@ -120,6 +126,16 @@ trayItems.register({
   click: ({ window }) => {
     // [D21]：托盘"查看日志"= 壳内日志页（壳日志 + 服务日志），不是打开文件夹
     void loadLogsPage(window);
+  },
+});
+
+trayItems.register({
+  id: 'settings',
+  title: '设置',
+  order: 35,
+  click: ({ window }) => {
+    // [FR-16.1] 设置页（当前唯一分组 = 提示词管理）
+    void loadPromptSettings(window);
   },
 });
 
@@ -312,7 +328,13 @@ async function startShell(win: BrowserWindow): Promise<void> {
 
   // spawn（桌面基线经 --patch 传入，§8.7；向导装出的实例用独立 DSH_HOME，[FR-22.4]）
   emitServiceStatus(win, 'starting', '正在启动服务…');
-  const patchFile = existsSync(DEFAULT_PATCH) ? DEFAULT_PATCH : undefined;
+  // 用户改过提示词设置 → 用 userData/desktop.patch.yml；否则用打包基线 assets/desktop.patch.yml
+  const userPatch = userPatchFile();
+  const patchFile = existsSync(userPatch)
+    ? userPatch
+    : existsSync(DEFAULT_PATCH)
+      ? DEFAULT_PATCH
+      : undefined;
   const usingInstalled =
     process.env.DSH_COMMAND === undefined && installedBin !== null && existsSync(installedBin);
   let spec: SpawnSpec;
@@ -496,6 +518,41 @@ function loadLogsPage(win: BrowserWindow): Promise<void> {
     });
 }
 
+/** 设置页（[FR-16.1] 提示词管理分组） */
+function loadPromptSettings(win: BrowserWindow): Promise<void> {
+  return win.loadFile(PROMPT_SETTINGS_PAGE, { query: { lang: 'zh' } }).catch(() => undefined);
+}
+
+/** 用户级 --patch overlay（[FR-16]：身份/persona 设置落这里；无则用打包默认基线） */
+function userPatchFile(): string {
+  return join(app.getPath('userData'), 'desktop.patch.yml');
+}
+
+/**
+ * 重启壳拉起的服务以应用新 --patch（[FR-16] 保存并重启）。
+ * 复用外部服务时不接管；等退出事件或超时后重跑启动序列（端口探测复用同一路径）。
+ */
+async function restartService(win: BrowserWindow): Promise<void> {
+  if (reuseMode) return;
+  const child = serviceProcess;
+  serviceProcess = null;
+  if (child && !child.killed) {
+    child.kill();
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = (): void => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      child.once('exit', done);
+      setTimeout(done, 2000);
+    });
+  }
+  await startShell(win);
+}
+
 // ---------------------------------------------------------------------------
 // 安装向导流程（[FR-22.5]：询问 → 选目录 → npm 下载安装 → 配置 → 启动）
 // 壳驱动：页面按 query step 渲染，按钮回调桥；进度经 onProgress 事件推送
@@ -632,6 +689,76 @@ const shellOps: ShellOps = {
     const result = await saveConnectionToService(port, cfg);
     writeLog('shell', `saveConnection ok=${String(result.ok)}`);
     return result;
+  },
+  getPromptSettings: () => {
+    const config = getStore().load();
+    const prompt = normalizePromptConfig(config.prompt);
+    if (reuseMode) {
+      // 复用外部服务：路径由其环境决定，三项均不可接管（[D75] 显式提示，不静默）
+      return {
+        mode: 'reuse',
+        includeHarnessIdentity: prompt.includeHarnessIdentity,
+        persona: prompt.persona,
+        globalPrompt: '',
+        globalPromptPath: null,
+      };
+    }
+    const path = globalAgentsPath(app.getPath('userData'));
+    let globalPrompt = '';
+    try {
+      globalPrompt = readFileSync(path, 'utf8');
+    } catch {
+      // 文件不存在 = 尚无全局指令
+    }
+    return {
+      mode: 'managed',
+      includeHarnessIdentity: prompt.includeHarnessIdentity,
+      persona: prompt.persona,
+      globalPrompt,
+      globalPromptPath: path,
+    };
+  },
+  savePromptSettings: async (input) => {
+    if (reuseMode) {
+      return {
+        ok: false,
+        restarting: false,
+        message:
+          '当前复用外部 DSH 服务：身份注入 / persona / 全局指令由该服务的环境决定，桌面端无法接管。' +
+          '如需接管：在原处停止外部服务，再回到桌面重新启动（会自动拉起自己的服务）。',
+      };
+    }
+    try {
+      const store = getStore();
+      const config = store.load();
+      config.prompt = { includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona };
+      store.save(config);
+      const agentsPath = globalAgentsPath(app.getPath('userData'));
+      mkdirSync(dirname(agentsPath), { recursive: true });
+      writeFileSync(agentsPath, input.globalPrompt, 'utf8');
+      writeFileSync(
+        userPatchFile(),
+        buildDesktopPatchYaml({ includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona }),
+        'utf8',
+      );
+      writeLog(
+        'shell',
+        `prompt settings saved identity=${input.includeHarnessIdentity} ` +
+          `personaBytes=${Buffer.byteLength(input.persona, 'utf8')} globalBytes=${Buffer.byteLength(input.globalPrompt, 'utf8')}`,
+      );
+    } catch (error) {
+      return { ok: false, restarting: false, message: `写入失败：${String(error)}` };
+    }
+    if (input.restart) {
+      const win = mainWindow;
+      void restartService(win ?? createWindow());
+      return { ok: true, restarting: true, message: '设置已保存，正在重启服务…' };
+    }
+    return {
+      ok: true,
+      restarting: false,
+      message: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
+    };
   },
 };
 

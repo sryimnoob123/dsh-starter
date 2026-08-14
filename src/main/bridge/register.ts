@@ -5,10 +5,13 @@ import {
   parseConnectionConfig,
   parseLogKind,
   parsePort,
+  parsePromptSettingsInput,
   parseWindowAction,
   type ConnectionConfig,
   type ConnectionResult,
   type InstallProgressEvent,
+  type PromptSettingsState,
+  type SavePromptSettingsResult,
   type ShellStatusEvent,
   type WindowAction,
 } from './contract.js';
@@ -41,6 +44,10 @@ export interface ShellOps {
   saveConnection(config: ConnectionConfig): Promise<ConnectionResult>;
   /** 首启向导：自动获取模型列表（GET {baseUrl}/models，端点不支持时返回失败让用户手填） */
   discoverModels(input: { baseUrl: string; apiKey: string }): Promise<{ ok: boolean; models: string[]; message?: string }>;
+  /** 提示词管理：读取当前设置与全局指令文件（[FR-16]） */
+  getPromptSettings(): PromptSettingsState;
+  /** 提示词管理：保存身份开关/persona/全局指令；restart=true 时重启壳拉起的服务以应用 --patch */
+  savePromptSettings(input: { includeHarnessIdentity: boolean; persona: string; globalPrompt: string; restart: boolean }): Promise<SavePromptSettingsResult>;
   /** 窗口控制（自绘标题栏 [D84]：minimize / toggle-maximize / close=缩托盘） */
   windowControl(action: WindowAction): void;
 }
@@ -88,6 +95,20 @@ export function registerBridge(ops: ShellOps): void {
       return { ok: false, models: [], message: '请先填写 API 地址与 API 密钥。' };
     }
     return ops.discoverModels({ baseUrl, apiKey });
+  });
+
+  ipcMain.handle(BRIDGE_API.getPromptSettings, () => ops.getPromptSettings());
+
+  ipcMain.handle(BRIDGE_API.savePromptSettings, (_event, raw: unknown) => {
+    const input = parsePromptSettingsInput(raw);
+    if (!input) {
+      return {
+        ok: false,
+        restarting: false,
+        message: '保存失败：内容非法或超出长度上限（persona ≤ 2 万字符、全局指令 ≤ 1MB）。',
+      } satisfies SavePromptSettingsResult;
+    }
+    return ops.savePromptSettings(input);
   });
 
   ipcMain.handle(BRIDGE_API.windowControl, (_event, raw: unknown) => {

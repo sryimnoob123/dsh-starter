@@ -22,7 +22,7 @@ The shell only owns four things: **window**, **tray**, **notifications**, and **
 
 ### Status
 
-Early stage (MVP). The shell core is implemented and covered by **191 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
+Early stage (MVP). The shell core is implemented and covered by **202 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
 
 ### Features
 
@@ -35,6 +35,7 @@ Early stage (MVP). The shell core is implemented and covered by **191 tests**. S
 - 🚀 First-run onboarding wizard (model & connection config)
 - 📦 Install wizard — downloads `@deepseek-ai/dsh` into a folder you choose
 - 🧩 Node.js auto-provisioning — no system Node needed; downloads an official release on first run if missing
+- 🧠 Prompt settings — edit the global instructions file (`AGENTS.md`, WYSIWYG), persona, and identity injection
 - 🔒 Localhost only — bound to `127.0.0.1`
 
 ### Install
@@ -76,7 +77,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 ### 当前进度
 
-早期阶段（MVP）。壳核心已完成，并有 **191 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
+早期阶段（MVP）。壳核心已完成，并有 **202 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
 
 ### 功能
 
@@ -89,6 +90,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 - 🚀 首启向导（模型与连接配置）
 - 📦 安装向导（把 `@deepseek-ai/dsh` 下载到自选目录）
 - 🧩 Node.js 自动补齐（无需系统 Node，缺失时首次自动下载官方发行版）
+- 🧠 提示词设置（编辑全局指令文件 `AGENTS.md`（所见即所注入）、persona 与身份注入）
 - 🔒 仅监听本机（`127.0.0.1`）
 
 ### 安装

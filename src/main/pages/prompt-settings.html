@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      设置页 — 提示词管理（FR-16 V1）
+      桥契约：dshShell.getPromptSettings() / dshShell.savePromptSettings({...})
+      视觉：方案 A「气泡蓝」+ OpenChamber 深色 token（用户拍板，[D83]/[D76]），与其余 5 页同语言
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --warn: oklch(80% .12 85);
+        --warn-soft: oklch(30% .03 75);
+        --line: oklch(31% .01 35);
+        --input-bg: oklch(16% .01 30);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+        padding: 28px 20px 40px;
+        display: flex; justify-content: center;
+      }
+      .card {
+        width: min(680px, 100%);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 36px 34px 30px;
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; }
+      .lede { margin: 0 0 22px; color: var(--text-2); max-width: 60ch; }
+
+      .banner {
+        border: 1px solid var(--warn);
+        background: var(--warn-soft);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin: 0 0 20px;
+        font-size: 13px;
+      }
+      .banner[hidden] { display: none; }
+
+      .group {
+        border-top: 1px solid var(--line);
+        padding: 18px 0;
+      }
+      .group:first-of-type { border-top: 0; padding-top: 0; }
+      .group h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; display: flex; align-items: baseline; gap: 10px; }
+      .group h2 .tag { font-size: 12px; font-weight: 400; color: var(--text-2); }
+      .hint { margin: 0 0 10px; color: var(--text-2); font-size: 13px; max-width: 62ch; }
+      .path {
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        color: var(--text-2);
+        background: var(--input-bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 6px 10px;
+        margin: 0 0 10px;
+        overflow-wrap: anywhere;
+      }
+      textarea {
+        width: 100%;
+        min-height: 84px;
+        resize: vertical;
+        background: var(--input-bg);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: 400 13px/1.6 Consolas, "Microsoft YaHei", monospace;
+      }
+      textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+      textarea[disabled] { opacity: 0.55; }
+
+      label.toggle { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+      label.toggle input { margin-top: 4px; accent-color: var(--brand); }
+      label.toggle .code {
+        font-family: Consolas, monospace; font-size: 12.5px; color: var(--text-2);
+        display: block; margin-top: 2px;
+      }
+
+      .note {
+        background: var(--input-bg);
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        padding: 10px 14px;
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+      .btn {
+        min-height: 40px; padding: 9px 20px;
+        border: 0; border-radius: 10px; cursor: pointer;
+        font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: var(--brand); color: oklch(16% .01 30);
+        transition: background 120ms ease;
+      }
+      .btn:hover { background: var(--brand-hover); }
+      .btn:active { background: var(--brand-active); }
+      .btn[disabled] { opacity: 0.55; cursor: default; }
+      .btn--ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); }
+      .btn--ghost:hover { background: var(--bg); }
+      .link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--brand); font: 600 13px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif; }
+      .link:hover { text-decoration: underline; }
+      .status { min-height: 1.4em; margin: 16px 0 0; color: var(--text-2); font-size: 13px; }
+      .status.err { color: var(--error); }
+
+      :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+      @media (prefers-reduced-motion: reduce) { .card { animation: none; } .btn { transition: none; } }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1 id="title"></h1>
+      <p class="lede" id="lede"></p>
+
+      <div class="banner" id="reuseBanner" hidden></div>
+
+      <section class="group" id="groupGlobal">
+        <h2><span id="gGlobalTitle"></span><span class="tag" id="gGlobalTag"></span></h2>
+        <p class="hint" id="gGlobalHint"></p>
+        <p class="path" id="globalPath"></p>
+        <textarea id="globalPrompt" rows="10" spellcheck="false" placeholder=""></textarea>
+      </section>
+
+      <section class="group" id="groupIdentity">
+        <h2><span id="gIdentityTitle"></span><span class="tag" id="gIdentityTag"></span></h2>
+        <p class="hint" id="gIdentityHint"></p>
+        <label class="toggle">
+          <input type="checkbox" id="identityToggle" />
+          <span>
+            <span id="gIdentityLabel"></span>
+            <span class="code">You are an AI agent powered by DeepSeek Harness.</span>
+          </span>
+        </label>
+        <p style="margin:10px 0 0"><button class="link" id="identityReset" type="button"></button></p>
+      </section>
+
+      <section class="group" id="groupPersona">
+        <h2><span id="gPersonaTitle"></span><span class="tag" id="gPersonaTag"></span></h2>
+        <p class="hint" id="gPersonaHint"></p>
+        <textarea id="persona" rows="4" spellcheck="false"></textarea>
+        <p style="margin:10px 0 0"><button class="link" id="personaReset" type="button"></button></p>
+      </section>
+
+      <section class="group" id="groupTemplates">
+        <h2><span id="gTemplatesTitle"></span><span class="tag" id="gTemplatesTag"></span></h2>
+        <div class="note" id="gTemplatesNote"></div>
+      </section>
+
+      <div class="row">
+        <button class="btn" id="saveBtn" type="button"></button>
+        <button class="btn" id="saveRestartBtn" type="button"></button>
+      </div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script>
+      'use strict';
+      const params = new URLSearchParams(location.search);
+      const lang = (params.get('lang') || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh';
+      document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+
+      const WEB_BASE_PERSONA =
+        'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.';
+
+      const STR = {
+        zh: {
+          docTitle: '设置',
+          title: '设置',
+          lede: '这里管理系统提示词的注入方式。改动只影响桌面端自己拉起的服务；保存即生效。',
+          reuseBanner:
+            '当前复用的是外部 DSH 服务：下面这些设置由那个服务的环境决定，桌面端无法接管。如需接管：在原处停止外部服务，再回到桌面重新启动。',
+          preview: '预览模式：未连接壳，编辑不会保存。',
+          gGlobalTitle: '全局系统提示词',
+          gGlobalTag: '所见即所注入',
+          gGlobalHint:
+            '这个文件就是 DSH 每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容；DSH 检测到文件变化后自动同步到会话。',
+          gGlobalPlaceholder: '在这里写全局规则，例如：\n\n- 用中文回答\n- 先想清楚再动手',
+          gIdentityTitle: '身份注入',
+          gIdentityTag: '默认关闭',
+          gIdentityHint:
+            '勾选后每轮系统提示词开头会加上一行 DSH 身份声明。默认关闭，把开头留给你的自定义内容。',
+          gIdentityLabel: '注入身份声明：',
+          gPersonaTitle: 'Persona（全局行为提示词）',
+          gPersonaTag: '重启生效',
+          gPersonaHint:
+            '拼接在系统提示词里的常驻段落。支持 {{model}}（当前模型）与 {{cwd}}（工作目录）变量；留空 = 不注入 persona。',
+          gTemplatesTitle: '内置流程模板',
+          gTemplatesTag: '暂不支持',
+          gTemplatesNote:
+            '子 agent 派发/汇总模板、计划模式提示词目前写死在 DSH 内置预设里，DSH 还没有开放终端用户编辑这些模板的接口，面板里暂不能改。想定制流程，可以把规范写进上面的全局指令文件，效果等同。',
+          save: '保存',
+          saveRestart: '保存并重启服务',
+          identityReset: '恢复默认（关闭）',
+          personaReset: '恢复默认模板',
+          saved: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
+          savedRestart: '设置已保存，正在重启服务…',
+          failed: '保存失败：',
+          disabled: '（外部服务模式，只读）',
+        },
+        en: {
+          docTitle: 'Settings',
+          title: 'Settings',
+          lede: 'Control how the system prompt is injected. Changes only affect the service started by this app and apply immediately on save.',
+          reuseBanner:
+            'An external DSH service is being reused: these settings belong to that service and cannot be taken over from here. To take over, stop the external service where it was started, then restart from this app.',
+          preview: 'Preview mode: no shell connected, edits are not saved.',
+          gGlobalTitle: 'Global system prompt',
+          gGlobalTag: 'WYSIWYG',
+          gGlobalHint:
+            'This file is the global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; DSH picks up changes automatically.',
+          gGlobalPlaceholder: 'Write global rules here, e.g.:\n\n- Answer in Chinese\n- Think before acting',
+          gIdentityTitle: 'Identity injection',
+          gIdentityTag: 'off by default',
+          gIdentityHint:
+            'When checked, a DSH identity line is prepended to every system prompt. Off by default so the opening belongs to your own content.',
+          gIdentityLabel: 'Inject identity:',
+          gPersonaTitle: 'Persona (global behavior prompt)',
+          gPersonaTag: 'needs restart',
+          gPersonaHint:
+            'A standing paragraph appended to the system prompt. Supports the {{model}} and {{cwd}} variables; empty = no persona injected.',
+          gTemplatesTitle: 'Built-in flow templates',
+          gTemplatesTag: 'not supported yet',
+          gTemplatesNote:
+            'Sub-agent dispatch/summary templates and plan-mode prompts currently live inside DSH’s shipped presets, and DSH has no end-user API for editing them yet. To customize flows, write your conventions into the global prompt file above — equivalent effect.',
+          save: 'Save',
+          saveRestart: 'Save & restart service',
+          identityReset: 'Reset to default (off)',
+          personaReset: 'Reset to default template',
+          saved: 'Saved. Global instructions sync automatically; identity & persona apply after a service restart.',
+          savedRestart: 'Saved — restarting the service…',
+          failed: 'Save failed: ',
+          disabled: '(external service, read-only)',
+        },
+      };
+      const t = STR[lang];
+      document.title = 'deepseekharness — ' + t.docTitle;
+
+      const $ = (id) => document.getElementById(id);
+      const el = {
+        title: $('title'), lede: $('lede'), reuseBanner: $('reuseBanner'),
+        gGlobalTitle: $('gGlobalTitle'), gGlobalTag: $('gGlobalTag'), gGlobalHint: $('gGlobalHint'),
+        globalPath: $('globalPath'), globalPrompt: $('globalPrompt'),
+        gIdentityTitle: $('gIdentityTitle'), gIdentityTag: $('gIdentityTag'), gIdentityHint: $('gIdentityHint'),
+        gIdentityLabel: $('gIdentityLabel'), identityToggle: $('identityToggle'), identityReset: $('identityReset'),
+        gPersonaTitle: $('gPersonaTitle'), gPersonaTag: $('gPersonaTag'), gPersonaHint: $('gPersonaHint'),
+        persona: $('persona'), personaReset: $('personaReset'),
+        gTemplatesTitle: $('gTemplatesTitle'), gTemplatesTag: $('gTemplatesTag'), gTemplatesNote: $('gTemplatesNote'),
+        saveBtn: $('saveBtn'), saveRestartBtn: $('saveRestartBtn'), status: $('status'),
+      };
+
+      function applyText() {
+        el.title.textContent = t.title;
+        el.lede.textContent = t.lede;
+        el.reuseBanner.textContent = t.reuseBanner;
+        el.gGlobalTitle.textContent = t.gGlobalTitle;
+        el.gGlobalTag.textContent = t.gGlobalTag;
+        el.gGlobalHint.textContent = t.gGlobalHint;
+        el.globalPrompt.placeholder = t.gGlobalPlaceholder;
+        el.gIdentityTitle.textContent = t.gIdentityTitle;
+        el.gIdentityTag.textContent = t.gIdentityTag;
+        el.gIdentityHint.textContent = t.gIdentityHint;
+        el.gIdentityLabel.textContent = t.gIdentityLabel;
+        el.identityReset.textContent = t.identityReset;
+        el.gPersonaTitle.textContent = t.gPersonaTitle;
+        el.gPersonaTag.textContent = t.gPersonaTag;
+        el.gPersonaHint.textContent = t.gPersonaHint;
+        el.personaReset.textContent = t.personaReset;
+        el.gTemplatesTitle.textContent = t.gTemplatesTitle;
+        el.gTemplatesTag.textContent = t.gTemplatesTag;
+        el.gTemplatesNote.textContent = t.gTemplatesNote;
+        el.saveBtn.textContent = t.save;
+        el.saveRestartBtn.textContent = t.saveRestart;
+      }
+      applyText();
+
+      function setStatus(text, isErr) {
+        el.status.textContent = text;
+        el.status.className = 'status' + (isErr ? ' err' : '');
+      }
+
+      function setEditable(on) {
+        for (const node of [el.globalPrompt, el.identityToggle, el.persona, el.identityReset, el.personaReset]) {
+          node.disabled = !on;
+        }
+        if (!on) {
+          el.gGlobalTag.textContent = t.disabled;
+          el.gIdentityTag.textContent = t.disabled;
+          el.gPersonaTag.textContent = t.disabled;
+        }
+      }
+
+      function buildPayload(restart) {
+        return {
+          includeHarnessIdentity: el.identityToggle.checked,
+          persona: el.persona.value,
+          globalPrompt: el.globalPrompt.value,
+          restart,
+        };
+      }
+
+      async function save(restart) {
+        const shell = window.dshShell;
+        if (!shell) { setStatus(t.preview, true); return; }
+        setStatus('…');
+        try {
+          const result = await shell.savePromptSettings(buildPayload(restart));
+          if (result && result.ok) {
+            setStatus(result.restarting ? t.savedRestart : t.saved, false);
+            if (result.restarting) {
+              // 重启会导航回主界面；页面即将卸载
+              el.saveBtn.disabled = true;
+              el.saveRestartBtn.disabled = true;
+            }
+          } else {
+            setStatus(t.failed + (result && result.message ? result.message : ''), true);
+          }
+        } catch (error) {
+          setStatus(t.failed + String(error), true);
+        }
+      }
+
+      el.saveBtn.addEventListener('click', () => save(false));
+      el.saveRestartBtn.addEventListener('click', () => save(true));
+      el.identityReset.addEventListener('click', () => { el.identityToggle.checked = false; });
+      el.personaReset.addEventListener('click', () => { el.persona.value = WEB_BASE_PERSONA; });
+
+      async function init() {
+        const shell = window.dshShell;
+        if (!shell || typeof shell.getPromptSettings !== 'function') {
+          setStatus(t.preview, true);
+          el.saveBtn.disabled = true;
+          el.saveRestartBtn.disabled = true;
+          return;
+        }
+        try {
+          const state = await shell.getPromptSettings();
+          if (!state) throw new Error('empty state');
+          el.identityToggle.checked = Boolean(state.includeHarnessIdentity);
+          el.persona.value = typeof state.persona === 'string' ? state.persona : WEB_BASE_PERSONA;
+          if (state.mode === 'managed') {
+            el.globalPrompt.value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
+            el.globalPath.textContent = state.globalPromptPath || '';
+          } else {
+            el.reuseBanner.hidden = false;
+            el.globalPath.textContent = '';
+            setEditable(false);
+            el.saveBtn.disabled = true;
+            el.saveRestartBtn.disabled = true;
+          }
+        } catch (error) {
+          setStatus(t.failed + String(error), true);
+        }
+      }
+      init();
+    </script>
+  </body>
+</html>

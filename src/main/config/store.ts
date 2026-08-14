@@ -13,6 +13,8 @@ export interface ShellConfig {
   window?: { width: number; height: number; maximized: boolean };
   /** 通知类型开关（[FR-4.3] 扩展位，V1 只有 result 类型） */
   notifications?: { result: boolean };
+  /** 提示词管理（[FR-16]：身份注入开关 + persona；语义与默认值见 src/main/prompt/promptSettings.ts） */
+  prompt?: { includeHarnessIdentity?: boolean; persona?: string };
 }
 
 const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };
