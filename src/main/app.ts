@@ -1214,11 +1214,11 @@ if (!gotLock) {
     setupTray(win);
     registerBridge(shellOps);
     setupAutoUpdater(); // [D78] 自动检查更新 + 自动下载（安装用户确认）
-    // 三态主题：操作系统深浅色变化时（跟随系统模式）同步 DSH 与图标
+    // 三态主题：操作系统深浅色变化时只刷新壳自身外观（图标/窗口底色）。
+    // 不向 DSH 推送——主题单一事实源是 DSH 官方设置，用户在官方设置里的选择
+    // 不能被壳覆盖；DSH 在跟随系统模式下会自行响应 OS 变化。
     nativeTheme.on('updated', () => {
       applyDesktopTheme();
-      const port = getStore().load().port ?? 3080;
-      if (reuseMode || serviceProcess) syncDesktopTheme(port);
     });
     void startShell(win);
   });
