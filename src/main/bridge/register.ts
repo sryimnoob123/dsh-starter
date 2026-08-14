@@ -13,6 +13,7 @@ import {
   type InstallProgressEvent,
   type ListProjectInstructionsResult,
   type NotificationHistoryEntry,
+  type GetSessionUsageResult,
   type PromptSettingsState,
   type SavePromptSettingsResult,
   type ShellStatusEvent,
@@ -63,6 +64,8 @@ export interface ShellOps {
   listProjectInstructions(): Promise<ListProjectInstructionsResult>;
   /** 项目级指令：按 workspaceId 现查路径并写 <path>/AGENTS.md（不接页面路径，防任意写） */
   saveProjectInstruction(input: { workspaceId: string; content: string }): Promise<{ ok: boolean; message: string }>;
+  /** 用量统计（ZCode 式）：当前会话的 host 投影汇总 */
+  getSessionUsage(): Promise<GetSessionUsageResult>;
   /** 窗口控制（自绘标题栏 [D84]：minimize / toggle-maximize / close=缩托盘） */
   windowControl(action: WindowAction): void;
 }
@@ -141,6 +144,8 @@ export function registerBridge(ops: ShellOps): void {
     if (!input) return { ok: false, message: '保存失败：内容非法或超出长度上限（≤ 1MB）。' };
     return ops.saveProjectInstruction(input);
   });
+
+  ipcMain.handle(BRIDGE_API.getSessionUsage, () => ops.getSessionUsage());
 
   ipcMain.handle(BRIDGE_API.windowControl, (_event, raw: unknown) => {
     const action = parseWindowAction(raw);

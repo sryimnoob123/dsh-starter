@@ -11,12 +11,13 @@ import {
 } from './contract.js';
 
 describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D79] 外包包 §2）', () => {
-  it('锁定 22 个方法名', () => {
+  it('锁定 23 个方法名', () => {
     expect(Object.keys(BRIDGE_API).sort()).toEqual([
       'choosePort',
       'clearNotifications',
       'discoverModels',
       'getPromptSettings',
+      'getSessionUsage',
       'goInstall',
       'listProjectInstructions',
       'onProgress',

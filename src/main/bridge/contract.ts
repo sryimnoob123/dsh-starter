@@ -23,6 +23,26 @@ export interface ProjectInstructionRow {
   content: string;
 }
 
+/** 用量统计（用户要求 ZCode 式；数据 = session.history 的 host 投影汇总） */
+export interface SessionUsage {
+  turns: number;
+  steps: number;
+  llmMs: number;
+  toolMs: number;
+  ttftMs: number;
+  ttftSteps: number;
+  decodeMs: number;
+  decodeTokens: number;
+  uncachedInputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+export type GetSessionUsageResult =
+  | { ok: true; sessionId: string; title: string; usage: SessionUsage }
+  | { ok: false; message: string };
+
 export type ListProjectInstructionsResult =
   | { ok: true; items: ProjectInstructionRow[] }
   | { ok: false; message: string };
@@ -189,6 +209,8 @@ export const BRIDGE_API = {
   // ---- 项目级指令（[FR-16.7] P1） ----
   listProjectInstructions: 'dsh:listProjectInstructions',
   saveProjectInstruction: 'dsh:saveProjectInstruction',
+  // ---- 用量统计（ZCode 式） ----
+  getSessionUsage: 'dsh:getSessionUsage',
   // ---- 事件订阅（壳 → 页面） ----
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',

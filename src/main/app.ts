@@ -58,6 +58,7 @@ import {
   projectAgentsPath,
   resolveWorkspacePath,
 } from './prompt/projectInstructions.js';
+import { normalizeSessionUsage } from './usage/sessionUsage.js';
 import {
   buildDesktopPatchYaml,
   globalAgentsPath,
@@ -76,6 +77,7 @@ const ONBOARDING_PAGE = join(__dirname, 'pages', 'onboarding.html');
 const LOGS_PAGE = join(__dirname, 'pages', 'logs.html');
 const PROMPT_SETTINGS_PAGE = join(__dirname, 'pages', 'prompt-settings.html');
 const NOTIFICATIONS_PAGE = join(__dirname, 'pages', 'notifications.html');
+const USAGE_PAGE = join(__dirname, 'pages', 'usage.html');
 const PRELOAD = join(__dirname, 'bridge', 'preload.cjs');
 const DEFAULT_PATCH = join(__dirname, '..', '..', 'assets', 'desktop.patch.yml');
 const ICON = join(__dirname, '..', '..', 'assets', 'icon.png');
@@ -94,6 +96,8 @@ let serviceProcess: ReturnType<typeof spawn> | null = null;
 let reuseMode = false;
 let eventSocket: WebSocket | null = null;
 let configStore: ConfigStore | null = null;
+/** 最后已知的当前会话（壳本地页用量统计等用；DSH 页面加载时持续刷新） */
+let lastSessionId: string | null = null;
 
 /** 壳配置（懒初始化：app ready 后才能取 userData 路径） */
 function getStore(): ConfigStore {
@@ -240,6 +244,16 @@ trayItems.register({
   click: ({ window }) => {
     // [D31] 通知历史中心：错过弹窗也能回看，可一键清空
     void loadNotificationsPage(window);
+  },
+});
+
+trayItems.register({
+  id: 'usage',
+  title: '用量统计',
+  order: 34,
+  click: ({ window }) => {
+    // 用量统计页（用户要求：ZCode 式，风格与现有 Codex 皮一致）
+    void loadUsagePage(window);
   },
 });
 
@@ -486,6 +500,16 @@ async function readCurrentSessionId(win: BrowserWindow): Promise<string | null> 
   } catch {
     return null;
   }
+}
+
+/** 刷新 lastSessionId（DSH 页面加载时 + 周期巡检；壳本地页用量统计用这个缓存值） */
+function refreshKnownSession(win: BrowserWindow): void {
+  if (!isDshAppUrl(win.webContents.getURL())) return;
+  void readCurrentSessionId(win)
+    .then((id) => {
+      if (id) lastSessionId = id;
+    })
+    .catch(() => undefined);
 }
 
 /** [FR-27] 托盘"压缩上下文"：session.prompt 发 /compact 斜杠命令（DSH 宿主执行，不进模型轮次） */
@@ -783,6 +807,7 @@ function createWindow(): BrowserWindow {
       win.webContents.executeJavaScript(PAGE_DRAG_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(PAGE_THEME_CSS).catch(() => undefined);
     } else if (url.startsWith('http://127.0.0.1')) {
+      refreshKnownSession(win);
       win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(DSH_HEADER_DRAG_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(VIEW_TAB_SCRIPT).catch(() => undefined);
@@ -870,6 +895,11 @@ function openInAppSettings(win: BrowserWindow): void {
 /** 通知历史页（[D31]：回看/清空） */
 function loadNotificationsPage(win: BrowserWindow): Promise<void> {
   return win.loadFile(NOTIFICATIONS_PAGE, { query: pageQuery() }).catch(() => undefined);
+}
+
+/** 用量统计页（ZCode 式；数据 = session.history 的 host 投影） */
+function loadUsagePage(win: BrowserWindow): Promise<void> {
+  return win.loadFile(USAGE_PAGE, { query: pageQuery() }).catch(() => undefined);
 }
 
 /** 返回对话主界面（设置/通知/日志页"返回对话"；未完成首启向导时回向导） */
@@ -1215,6 +1245,43 @@ const shellOps: ShellOps = {
       };
     }
   },
+  getSessionUsage: async () => {
+    // 用量统计（ZCode 式）：当前会话 → session.history 尾部页 → host 现成的
+    // sessionStats/tokenUsage 投影（无壳侧聚合；壳本地页读不到 localStorage，用 lastSessionId 缓存）
+    const win = mainWindow;
+    const liveId = win && isDshAppUrl(win.webContents.getURL())
+      ? await readCurrentSessionId(win)
+      : null;
+    const sessionId = liveId ?? lastSessionId;
+    if (!sessionId) return { ok: false, message: '没有当前会话：先在对话页打开一个会话。' };
+    const port = getStore().load().port ?? 3080;
+    try {
+      const value = await callRpc({
+        port,
+        method: 'session.history',
+        payload: { sessionId, maxMessages: 1 },
+      });
+      const projections = (value as { projections?: unknown } | null | undefined)?.projections;
+      if (typeof projections !== 'object' || projections === null) {
+        return { ok: false, message: '该 DSH 版本没有用量投影，无法统计。' };
+      }
+      const values = (projections as { values?: Record<string, unknown> }).values ?? {};
+      const usage = normalizeSessionUsage(values);
+      const titleRaw = values.title;
+      const title =
+        typeof titleRaw === 'string'
+          ? titleRaw
+          : (typeof titleRaw === 'object' && titleRaw !== null && typeof (titleRaw as { title?: unknown }).title === 'string')
+            ? String((titleRaw as { title: string }).title)
+            : '';
+      return { ok: true, sessionId, title, usage };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `读取用量失败：${error instanceof Error ? error.message : String(error)}（需要服务在运行）`,
+      };
+    }
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1239,6 +1306,10 @@ if (!gotLock) {
     nativeTheme.on('updated', () => {
       applyDesktopTheme();
     });
+    // 周期巡检当前会话（壳本地页用量统计等依赖 lastSessionId；DSH 启动后才写 localStorage）
+    setInterval(() => {
+      if (mainWindow) refreshKnownSession(mainWindow);
+    }, 5_000);
     void startShell(win);
   });
   app.on('window-all-closed', () => {
