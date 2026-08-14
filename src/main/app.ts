@@ -15,6 +15,7 @@ import { classifyEvent, type MuxFrame } from './notify/classify.js';
 import { unwrapMuxEnvelope } from './notify/mux.js';
 import { diffJobs, type JobStatus } from './events/catchup.js';
 import { redact, buildLogLine } from './logging/redact.js';
+import { maybeRotateLog } from './logging/rotate.js';
 import { readLogTail } from './logging/readLog.js';
 import { logFile } from './logging/paths.js';
 import { setupAutoUpdater, checkForUpdatesManually } from './updater/index.js';
@@ -186,6 +187,8 @@ function writeLog(kind: 'shell' | 'service', text: string): void {
   try {
     const file = logFile(app.getPath('userData'), kind === 'shell' ? 'shell.log' : 'service.log');
     mkdirSync(dirname(file), { recursive: true });
+    // 长驻托盘：日志超 5MB 轮转一次（.old 覆盖式），防止无限增长
+    maybeRotateLog(file);
     for (const line of String(text).split(/\r?\n/)) {
       if (!line) continue;
       appendFileSync(file, `${redact(buildLogLine('info', line))}\n`, 'utf8');
