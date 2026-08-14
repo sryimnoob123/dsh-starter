@@ -413,6 +413,26 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     mainWindow?.hide();
   });
+  // 右键菜单：Electron 默认不提供原生右键菜单，这里补上复制/粘贴/剪切/全选/撤销重做
+  win.webContents.on('context-menu', (_event, params) => {
+    const template: Electron.MenuItemConstructorOptions[] = [];
+    if (params.isEditable) {
+      template.push(
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { role: 'selectAll', label: '全选' },
+      );
+    } else if (params.selectionText.trim().length > 0) {
+      template.push({ role: 'copy', label: '复制' });
+    }
+    if (template.length > 0) {
+      Menu.buildFromTemplate(template).popup({ window: win });
+    }
+  });
   // 所有页面统一注入自绘标题栏（壳本地页 + DSH 页面；拖拽区 = 标题栏本身）；
   // DSH 页面额外注入深色细滚动条样式 + 内容下移（去掉网页感，[D83]/[D84]）
   win.webContents.on('did-finish-load', () => {
