@@ -13,7 +13,7 @@ import { isNodeOk } from './service/nodeCheck.js';
 import { Registry } from './extensions/registry.js';
 import { classifyEvent, type MuxFrame } from './notify/classify.js';
 import { unwrapMuxEnvelope } from './notify/mux.js';
-import { diffJobs, type JobStatus } from './events/catchup.js';
+import { JobTracker } from './events/catchup.js';
 import { redact, buildLogLine } from './logging/redact.js';
 import { maybeRotateLog } from './logging/rotate.js';
 import { readLogTail } from './logging/readLog.js';
@@ -99,6 +99,8 @@ let eventSocket: WebSocket | null = null;
 let configStore: ConfigStore | null = null;
 /** 最后已知的当前会话（壳本地页用量统计等用；DSH 页面加载时持续刷新） */
 let lastSessionId: string | null = null;
+/** job 状态跟踪器（跨重连存活，[FR-4.1] 断线补偿；评审 C1 修复） */
+const moduleJobTracker = new JobTracker();
 
 /** 壳配置（懒初始化：app ready 后才能取 userData 路径） */
 function getStore(): ConfigStore {
@@ -374,7 +376,9 @@ function subscribeEvents(port: number): void {
   // 已订阅时跳过（retry 重跑启动序列会再次进入本函数，避免重复通知）
   if (eventSocket && eventSocket.readyState === WebSocket.OPEN) return;
   eventSocket = new WebSocket(`ws://127.0.0.1:${port}/api/events.mux`);
-  const jobState = new Map<string, JobStatus>();
+  // job 状态跟踪器跨重连存活（评审 C1：重连后仍能补发断线期间终态的 job，
+  // 首次连接才是基线回放）；jobState 不再在 subscribeEvents 内重建
+  const jobState = moduleJobTracker;
 
   // [FR-17.8] 壳侧独立卡住看门狗：帧流即活动；有任务且 5 分钟无帧 → 一级提醒，
   // 3 分钟后二级升级；断线时清空状态（壳观察不到 = 不误报，重连后重新计时）
@@ -394,7 +398,7 @@ function subscribeEvents(port: number): void {
       const frame = unwrapMuxEnvelope(JSON.parse(String(data))) as MuxFrame;
       trackFrame(frame);
       if (frame.type === 'session/jobs') {
-        const terminal = diffJobs(jobState, frame);
+        const terminal = jobState.apply(frame);
         for (const job of terminal) {
           writeLog('shell', `terminal job ${job.status} for ${frame.sessionId}`);
           notify({

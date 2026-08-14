@@ -66,41 +66,6 @@ export function normalizeSessionUsage(projections: unknown): SessionUsage {
   };
 }
 
-/** 计费输入 = 未缓存输入 + 缓存读 + 缓存写（DSH billedInputTokens 同款口径） */
-export function billedInputTokens(u: SessionUsage): number {
-  return u.uncachedInputTokens + u.cacheReadTokens + u.cacheWriteTokens;
-}
+// 展示层格式化（紧凑 token/时长/命中率/速率）在 usage.html 内联实现——
+// 展示口径归页面单一事实源，避免两处漂移（评审 I1）。
 
-/** 缓存命中率（百分比整数）；无计费输入时 null */
-export function cacheHitPercent(u: SessionUsage): number | null {
-  const denominator = billedInputTokens(u);
-  return denominator === 0 ? null : Math.round((u.cacheReadTokens / denominator) * 100);
-}
-
-/** 紧凑 token 数：517 / 12.2K / 1.2M（DSH StatsLine 同款） */
-export function formatTokens(n: number): string {
-  const scaled = (v: number): string =>
-    v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
-  if (n < 1_000) return String(n);
-  if (n < 1_000_000) return `${scaled(n / 1_000)}K`;
-  return `${scaled(n / 1_000_000)}M`;
-}
-
-/** 紧凑时长：45.2s 以下按秒，之后 2m42s（DSH StatsLine 同款） */
-export function formatDuration(ms: number): string {
-  const s = ms / 1_000;
-  if (s < 60) return `${Math.round(s * 10) / 10}s`;
-  const whole = Math.round(s);
-  return `${Math.floor(whole / 60)}m${whole % 60}s`;
-}
-
-/** 平均首 token 延迟（毫秒）；无记录时 null */
-export function averageTtftMs(u: SessionUsage): number | null {
-  return u.ttftSteps === 0 ? null : u.ttftMs / u.ttftSteps;
-}
-
-/** 解码速度（tokens/秒，一位小数）；无解码数据时 null */
-export function decodeTokensPerSecond(u: SessionUsage): number | null {
-  if (u.decodeMs <= 0 || u.decodeTokens <= 0) return null;
-  return (u.decodeTokens / (u.decodeMs / 1_000));
-}

@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SETTINGS_EXTENSION_SCRIPT } from './settingsExtension.js';
+import { WEB_BASE_PERSONA } from '../prompt/promptSettings.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function bracesBalanced(code: string): boolean {
   let depth = 0;
@@ -55,5 +61,13 @@ describe('SETTINGS_EXTENSION_SCRIPT（DSH 官方设置扩展）', () => {
   it('双兜底重挂载（DSH 事件流重渲染弹窗会重建）', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('MutationObserver');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('setInterval(attach, 1500)');
+  });
+
+  it('默认 persona 与规范串一致（评审 M3 漂移锁：面板/独立页/主进程三处同源）', () => {
+    // 面板脚本内联的默认 persona 必须等于 promptSettings.ts 的规范串
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain(WEB_BASE_PERSONA);
+    // 独立设置页同样引用规范串（页面是独立文件，读源码断言）
+    const page = readFileSync(join(__dirname, '..', 'pages', 'prompt-settings.html'), 'utf8');
+    expect(page).toContain(WEB_BASE_PERSONA);
   });
 });
