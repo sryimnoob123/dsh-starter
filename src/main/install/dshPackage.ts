@@ -32,11 +32,12 @@ export function findGlobalDsh(
   });
 }
 
-/** 安装用 npm 源（官方 npmjs 直连常被墙，默认走 npmmirror 镜像） */
-export const DSH_NPM_REGISTRY = 'https://registry.npmmirror.com';
+/** 安装用 npm 源：默认官方 registry（实测比镜像快约 3.7 倍）；被墙时自动回落镜像（见 runNpmInstall） */
+export const DSH_NPM_REGISTRY = 'https://registry.npmjs.org';
+export const DSH_NPM_REGISTRY_MIRROR = 'https://registry.npmmirror.com';
 
-export function buildNpmInstallArgs(prefix: string): string[] {
-  return ['install', '--prefix', prefix, '--registry', DSH_NPM_REGISTRY, DSH_PACKAGE];
+export function buildNpmInstallArgs(prefix: string, registry: string = DSH_NPM_REGISTRY): string[] {
+  return ['install', '--prefix', prefix, '--registry', registry, DSH_PACKAGE];
 }
 
 export function npmCommand(platform: NodeJS.Platform = process.platform): string {
