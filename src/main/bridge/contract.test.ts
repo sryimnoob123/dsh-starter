@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BRIDGE_API,
   parseConnectionConfig,
+  parseFilePathInput,
   parseInstallPhase,
   parseLogKind,
   parsePort,
@@ -11,11 +12,13 @@ import {
 } from './contract.js';
 
 describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D79] 外包包 §2）', () => {
-  it('锁定 24 个方法名', () => {
+  it('锁定 26 个方法名', () => {
     expect(Object.keys(BRIDGE_API).sort()).toEqual([
       'choosePort',
       'clearNotifications',
       'discoverModels',
+      'filePathMenu',
+      'filePathOpen',
       'getPromptSettings',
       'getSessionUsage',
       'goInstall',
@@ -67,6 +70,17 @@ describe('parseLogKind', () => {
 
   it.each(['other', 1, null, undefined, {}])('拒绝非法类型 %o', (v) => {
     expect(parseLogKind(v)).toBeNull();
+  });
+});
+
+describe('parseFilePathInput（文件路径右键/打开入参）', () => {
+  it('接受合法路径并去除首尾空白', () => {
+    expect(parseFilePathInput('  src/a.ts  ')).toBe('src/a.ts');
+    expect(parseFilePathInput('C:\\proj\\a.ts')).toBe('C:\\proj\\a.ts');
+  });
+
+  it.each(['', '   ', null, undefined, 7, {}, 'x'.repeat(8193)])('拒绝非法入参 %o', (v) => {
+    expect(parseFilePathInput(v)).toBeNull();
   });
 });
 

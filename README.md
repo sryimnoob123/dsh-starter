@@ -12,7 +12,7 @@ DeepSeek Harness 的桌面客户端 —— 一个极简的 Electron 壳，把官
 
 ## English
 
-**Contents**: [What is this](#what-is-this) · [Status](#status) · [Features](#features) · [Install](#install) · [Development](#development) · [License](#license)
+**Contents**: [What is this](#what-is-this) · [What makes it different](#what-makes-it-different) · [Status](#status) · [Features](#features) · [Install](#install) · [Development](#development) · [License](#license)
 
 ### What is this
 
@@ -20,15 +20,25 @@ A thin [Electron](https://www.electronjs.org/) shell for [DeepSeek Harness](http
 
 The shell only owns four things: **window**, **tray**, **notifications**, and **service lifecycle**. Everything else — the UI, the features, the agent capabilities — lives on the DSH side.
 
+### What makes it different
+
+- **The thinnest possible shell.** It never re-implements DSH. You point it at an existing `dsh` service (or it starts one from a DeepSeek Harness checkout) and keeps the official web GUI intact — nothing is re-skinned, nothing is duplicated, the UI stays 1:1 with the official DSH.
+- **The shell owns the service lifecycle.** It can spawn DSH from a chosen checkout, and on a crash it recovers automatically with exponential backoff — a plain wrapper stops every time the service dies and forces you to restart manually.
+- **Settings live inside DSH's own settings dialog.** Shell features (global prompt, persona, project-level instructions, notification toggle) are injected into the official DSH settings as extra entries — one place for everything, not a separate settings page.
+- **What you edit is what gets injected.** The global prompt editor writes the real `AGENTS.md` that the running service reads, so there is no "edit here, apply elsewhere" gap; persona changes restart and reconnect automatically.
+- **Full usage statistics across all sessions**, shown in a dedicated page from the tray.
+- **Desktop-grade conveniences**: one-click "compact context" for the current session, a stall watchdog that flags silent jobs, a notification history, file-path menu + drag-a-file-as-`@path` reference, and a first-run onboarding wizard.
+
 ### Status
 
-Early stage (MVP). The shell core is implemented and covered by **334 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
+Shell core implemented, **360 tests passing**, and verified on real machines (installer, onboarding, notifications, auto-update, service lifecycle). Continuously maintained. Contributions are welcome.
 
 ### Features
 
 - 🪟 Frameless window + self-drawn titlebar (minimize / maximize / close-to-tray)
 - 🌙 Light / dark theme (follows the OS, or pick in DSH appearance settings) — Codex-style skin
-- 📊 Usage stats — per-session token / time / activity (tray → Usage)
+- 📊 Usage stats — token / time / activity across **all** sessions (tray → Usage)
+- 🔄 The shell owns the DSH service lifecycle — spawn from a chosen checkout + crash auto-recovery with exponential backoff
 - 📌 System tray menu (open / stop service / logs / settings / check updates / help / quit)
 - ⚡ Quick actions — one-click "Compact context" tray shortcut for the current session
 - 🔔 Desktop notifications for finished / failed jobs
@@ -36,10 +46,12 @@ Early stage (MVP). The shell core is implemented and covered by **334 tests**. S
 - 🗂️ Notification history — every shell notification is recorded (last 500) and viewable/cleared from the tray
 - 🔄 Automatic updates (`electron-updater`)
 - 🔌 Smart port detection — reuse a running service, ask on conflict
-- 🚀 First-run onboarding wizard (model & connection config)
+- 🧠 Prompt settings **inside DSH's own settings** — global instructions `AGENTS.md` (WYSIWYG, writes the real file the service reads), persona (auto-restart on change), identity injection, project-level instructions, notification toggle; 🟢/🔴 badge shows whether the shell or an external process owns the global prompt
+- 📁 File-path menu — right-click a file path in chat to copy it, reveal in Explorer, or open it directly
+- 📎 Drag files into the chat as `@path` references (images still use DSH's built-in vision input)
+- 🚀 First-run onboarding wizard (workspace, model & connection) matched to the DSH theme
 - 📦 Install wizard — downloads `@deepseek-ai/dsh` into a folder you choose
 - 🧩 Node.js auto-provisioning — no system Node needed; downloads an official release on first run if missing
-- 🧠 Prompt settings — edit the global instructions file (`AGENTS.md`, WYSIWYG), persona, identity injection, and the notification toggle
 - 🔒 Localhost only — bound to `127.0.0.1`
 
 ### Install
@@ -71,7 +83,7 @@ In dev, you can point `DSH_CHECKOUT` at a local DeepSeek Harness checkout to use
 
 ## 中文
 
-**目录**：[这是什么](#这是什么) · [当前进度](#当前进度) · [功能](#功能) · [安装](#安装) · [开发](#开发) · [许可证](#许可证)
+**目录**：[这是什么](#这是什么) · [和同类项目有什么不同](#和同类项目有什么不同) · [当前进度](#当前进度) · [功能](#功能) · [安装](#安装) · [开发](#开发) · [许可证](#许可证)
 
 ### 这是什么
 
@@ -79,15 +91,25 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 壳只负责四件事：**窗口**、**托盘**、**通知**、**服务生命周期**；其余（界面、功能、agent 能力）都在 DSH 侧。
 
+### 和同类项目有什么不同
+
+- **薄到极限的壳。** 从不重写 DSH —— 指向你已有的 `dsh` 服务（或从一个 DeepSeek Harness checkout 启动一个），界面保持和官方 Web 版 1:1，不换皮、不复刻、功能一个不少。
+- **壳接管服务生命周期。** 能按选定 checkout 自动拉起 DSH，服务崩溃时按指数退避自动恢复；普通壳是服务一挂就得你手动重启。
+- **设置长在 DSH 官方设置里。** 壳的功能设置（全局提示词、persona、项目级指令、通知开关）作为额外条目注入官方设置弹窗 —— 所有配置一个地方，不用单独一个设置页。
+- **所见即所注入。** 全局提示词编辑器写的是**运行中服务真正读取的那份 `AGENTS.md`**，不存在"这里改、那边没生效"的断层；persona 变更自动重启接回会话。
+- **全会话用量统计**，托盘一键进入独立页面。
+- **桌面级便利**：当前会话一键"压缩上下文"、静默任务看门狗、通知历史、文件路径菜单 + 拖文件成 `@路径` 引用、与 DSH 主题一致的首启向导。
+
 ### 当前进度
 
-早期阶段（MVP）。壳核心已完成，并有 **334 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
+壳核心已完成，**360 个测试全部通过**，并已在真机验证（安装包、首启向导、通知、自动更新、服务生命周期）。持续维护中。欢迎贡献。
 
 ### 功能
 
 - 🪟 无边框窗口 + 自绘标题栏（最小化 / 最大化 / 关闭缩到托盘）
 - 🌙 浅色 / 深色主题（跟随系统，或到 DSH 外观设置里选）—— Codex 风格换肤
-- 📊 用量统计 —— 每会话 token / 耗时 / 活动（托盘 → 用量）
+- 📊 用量统计 —— 全会话累计 token / 耗时 / 活动（托盘 → 用量）
+- 🔄 **壳接管 DSH 服务生命周期** —— 按选定 checkout 启动 + 崩溃指数退避自动恢复
 - 📌 系统托盘菜单（打开 / 停止服务 / 日志 / 设置 / 检查更新 / 帮助 / 退出）
 - ⚡ 快捷操作 —— 托盘一键"压缩上下文"（当前会话）
 - 🔔 任务完成 / 失败桌面通知
@@ -95,10 +117,12 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 - 🗂️ 通知历史 —— 每条壳通知都会记录（最近 500 条），托盘可回看/清空
 - 🔄 自动更新（`electron-updater`）
 - 🔌 智能端口探测（复用已运行服务，端口冲突时询问）
-- 🚀 首启向导（模型与连接配置）
+- 🧠 提示词设置（**长在 DSH 官方设置里**：编辑运行服务真实读取的 `AGENTS.md`（所见即所注入）、persona（变更自动重启）、身份注入、项目级指令、通知开关；🟢/🔴 徽标显示全局提示词由壳管还是外部进程管）
+- 📁 文件路径菜单 —— 对话里右键某个文件路径：复制 / 在资源管理器打开 / 直接打开文件
+- 📎 把文件拖进对话成为 `@路径` 引用（图片仍走 DSH 自带视觉输入）
+- 🚀 首启向导（工作区 + 模型 + 连接，配色贴合 DSH 主题）
 - 📦 安装向导（把 `@deepseek-ai/dsh` 下载到自选目录）
 - 🧩 Node.js 自动补齐（无需系统 Node，缺失时首次自动下载官方发行版）
-- 🧠 提示词设置（编辑全局指令文件 `AGENTS.md`（所见即所注入）、persona、身份注入与通知开关）
 - 🔒 仅监听本机（`127.0.0.1`）
 
 ### 安装

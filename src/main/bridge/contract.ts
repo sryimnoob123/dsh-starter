@@ -213,6 +213,9 @@ export const BRIDGE_API = {
   saveProjectInstruction: 'dsh:saveProjectInstruction',
   // ---- 用量统计（ZCode 式） ----
   getSessionUsage: 'dsh:getSessionUsage',
+  // ---- 文件路径动作（对话内文件路径的右键菜单 / 直接打开，壳承接 [FR-11.1]） ----
+  filePathMenu: 'dsh:filePathMenu',
+  filePathOpen: 'dsh:filePathOpen',
   // ---- 事件订阅（壳 → 页面） ----
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',
@@ -238,6 +241,14 @@ export function parsePort(raw: unknown): number | null {
 
 export function parseLogKind(raw: unknown): LogKind | null {
   return raw === 'shell' || raw === 'service' ? raw : null;
+}
+
+/** 文件路径入参（右键菜单 / 直接打开）：trim、非空、上限 8192 字符（防垃圾数据进主进程） */
+export function parseFilePathInput(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const path = raw.trim();
+  if (path === '' || path.length > 8192) return null;
+  return path;
 }
 
 /** 校验 AI 接入表单：地址 http(s) 开头、密钥与模型名非空；models 可选（过滤空值/非字符串/去重，全非法则丢弃） */

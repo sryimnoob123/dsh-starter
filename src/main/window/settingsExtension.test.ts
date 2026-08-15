@@ -58,9 +58,11 @@ describe('SETTINGS_EXTENSION_SCRIPT（DSH 官方设置扩展）', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.saveProjectInstruction(');
   });
 
-  it('不占用官方设置的用量统计（用量统计是独立托盘页 usage.html，非设置内卡片）', () => {
-    expect(SETTINGS_EXTENSION_SCRIPT).not.toContain('dsh-gp-usage-nav');
-    expect(SETTINGS_EXTENSION_SCRIPT).not.toContain('dsh-gp-usage-section');
+  it('用量统计 = 官方设置第二个扩展（全量累计，数据走 getSessionUsage）', () => {
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-nav');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-section');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.getSessionUsage()');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('usageTitle');
   });
 
   it('生效状态徽标：壳管模式（🟢）/ 外部模式（🔴）+ 双语', () => {
