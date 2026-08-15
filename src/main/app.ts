@@ -8,7 +8,7 @@ import { ConfigStore } from './config/store.js';
 import { classifyProbe, parseReadyUrlLine } from './service/detect.js';
 import { decidePort, nextFreeCandidates } from './service/port.js';
 import { decideStartup } from './service/startup.js';
-import { buildCommandArgs, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
+import { buildCheckoutSpawnSpec, buildCommandArgs, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
 import { isNodeOk } from './service/nodeCheck.js';
 import { Registry } from './extensions/registry.js';
 import { classifyEvent, type MuxFrame } from './notify/classify.js';
@@ -93,8 +93,34 @@ interface TrayItem {
 }
 
 let mainWindow: BrowserWindow | null = null;
+/** 应用显示名（窗口标题/托盘/通知；与 package.json productName 一致，[D91] 命名 deepseek-harness-starter） */
+const APP_NAME = 'deepseek-harness-starter';
 let serviceProcess: ReturnType<typeof spawn> | null = null;
 let reuseMode = false;
+/** 用户是否正在退出（服务自愈时避免退出过程中重启） */
+let quitting = false;
+/** 服务死亡自愈重试次数（指数退避，就绪后清零） */
+let restartAttempts = 0;
+let restartTimer: NodeJS.Timeout | null = null;
+
+/** 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避重启，最多 5 次；超过则回引导页 */
+function scheduleServiceRestart(win: BrowserWindow): void {
+  restartAttempts += 1;
+  if (restartAttempts > 5) {
+    writeLog('shell', 'auto-restart gave up after 5 attempts');
+    restartAttempts = 0;
+    void loadGuide(win, 'spawn-crash');
+    return;
+  }
+  const delay = Math.min(1000 * 2 ** (restartAttempts - 1), 30000);
+  if (restartTimer) clearTimeout(restartTimer);
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    if (quitting || win.isDestroyed()) return;
+    writeLog('shell', `auto-restart service (attempt ${restartAttempts})`);
+    void startShell(win);
+  }, delay);
+}
 let eventSocket: WebSocket | null = null;
 let configStore: ConfigStore | null = null;
 /** 最后已知的当前会话（壳本地页用量统计等用；DSH 页面加载时持续刷新） */
@@ -317,7 +343,7 @@ function probePort(port: number): Promise<'dsh' | 'occupied' | 'free'> {
 async function stopService(): Promise<void> {
   if (reuseMode) {
     // 复用外部服务：不杀别人的进程（[FR-7.1] 并存），只提示
-    new Notification({ title: 'deepseekharness', body: '服务由外部启动，请在原处停止。' }).show();
+    new Notification({ title: APP_NAME, body: '服务由外部启动，请在原处停止。' }).show();
     return;
   }
   if (!serviceProcess || serviceProcess.killed) return;
@@ -347,7 +373,7 @@ async function stopService(): Promise<void> {
 function updateTrayState(): void {
   if (tray) {
     const running = reuseMode || serviceProcess !== null;
-    tray.setToolTip(running ? 'deepseekharness — 服务运行中' : 'deepseekharness — 服务已停止');
+    tray.setToolTip(running ? `${APP_NAME} — 服务运行中` : `${APP_NAME} — 服务已停止`);
   }
 }
 
@@ -376,6 +402,8 @@ function subscribeEvents(port: number): void {
   // 已订阅时跳过（retry 重跑启动序列会再次进入本函数，避免重复通知）
   if (eventSocket && eventSocket.readyState === WebSocket.OPEN) return;
   eventSocket = new WebSocket(`ws://127.0.0.1:${port}/api/events.mux`);
+  // 连接失败/被拒（如服务重启空窗期 ECONNREFUSED）→ 交给 close 重连，别变未捕获异常
+  eventSocket.on('error', () => { /* 忽略；close 事件会触发重连 */ });
   // job 状态跟踪器跨重连存活（评审 C1：重连后仍能补发断线期间终态的 job，
   // 首次连接才是基线回放）；jobState 不再在 subscribeEvents 内重建
   const jobState = moduleJobTracker;
@@ -458,7 +486,7 @@ function notify(candidate: { type: 'result'; sessionId: string; title: string })
   if (!Notification.isSupported()) return;
   // [FR-4.3] 通知类型开关：设置页"通知"组关闭后不再弹（默认开）
   if (getStore().load().notifications?.result === false) return;
-  const n = new Notification({ title: 'deepseekharness', body: candidate.title });
+  const n = new Notification({ title: APP_NAME, body: candidate.title });
   n.on('click', () => {
     // 唤起窗口；主界面已加载时定位到对应会话：写入 dsh.sessions.current 后 reload，
     // DSH 启动恢复契约会切到该会话（window/locate.ts）。壳本地页（file://）只唤起窗口。
@@ -477,7 +505,7 @@ function notify(candidate: { type: 'result'; sessionId: string; title: string })
   try {
     appendNotificationEntry(app.getPath('userData'), {
       time: Date.now(),
-      title: 'deepseekharness',
+      title: APP_NAME,
       body: redact(candidate.title),
     });
   } catch {
@@ -488,9 +516,9 @@ function notify(candidate: { type: 'result'; sessionId: string; title: string })
 /** 托盘快捷操作的反馈通知（用户主动点击的即时回执，不受任务结果通知开关影响） */
 function showActionNotice(body: string): void {
   if (!Notification.isSupported()) return;
-  new Notification({ title: 'deepseekharness', body }).show();
+  new Notification({ title: APP_NAME, body }).show();
   try {
-    appendNotificationEntry(app.getPath('userData'), { time: Date.now(), title: 'deepseekharness', body: redact(body) });
+    appendNotificationEntry(app.getPath('userData'), { time: Date.now(), title: APP_NAME, body: redact(body) });
   } catch {
     // 历史落盘失败不影响通知本身
   }
@@ -555,7 +583,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
   const config = store.load();
 
   const nodeOk = isNodeOk(process.versions.node);
-  const dshCwd = process.env.DSH_CHECKOUT ?? '';
+  // 服务生命周期归壳（[D90]）：优先用"选择已有 DSH 目录"落盘的 checkout；其次 DSH_CHECKOUT 环境变量
+  const dshCwd = config.dshCheckout ?? process.env.DSH_CHECKOUT ?? '';
   const installedBin = config.installDir !== undefined ? dshBinPath(config.installDir) : null;
   const dshDetected =
     dshCwd !== '' ||
@@ -625,6 +654,10 @@ async function startShell(win: BrowserWindow): Promise<void> {
       port,
       patchFile,
     });
+  } else if (config.dshCheckout && existsSync(join(config.dshCheckout, 'apps', 'cli', 'src', 'bin.ts'))) {
+    // checkout（[D90] 用户"选择已有 DSH 目录"）：直跑 node --import tsx/esm apps/cli/src/bin.ts，
+    // 与用户 start.bat 完全一致（不走 pnpm，避免 pnpm 依赖/慢启动）
+    spec = buildCheckoutSpawnSpec({ port });
   } else {
     spec = buildSpawnSpec({
       port,
@@ -667,6 +700,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
       serviceProcess = null;
       emitServiceStatus(win, 'stopped', '服务已停止');
       updateTrayState();
+      // 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避自动重启；启动期崩溃走上面的 reject
+      if (ready && !quitting) scheduleServiceRestart(win);
     });
     setTimeout(() => {
       if (!ready) reject(new Error('readiness timeout'));
@@ -678,6 +713,7 @@ async function startShell(win: BrowserWindow): Promise<void> {
     config.port = port;
     store.save(config);
     writeLog('shell', `service ready on port ${port}`);
+    restartAttempts = 0;
     if (config.onboardingDone) {
       await loadUrl(win, `http://127.0.0.1:${port}`);
     } else {
@@ -728,7 +764,7 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
-    title: 'deepseekharness',
+    title: APP_NAME,
     icon: themeIcon(), // 官方鲸鱼图标（[D14]；深色主题 = 白鲸、浅色 = 黑鲸）
     // [D83]/[D84] 深色无边框 + 整体自绘标题栏（Codex 同款结构）；三态主题：
     // 窗口底色跟随实际生效主题，避免加载/切换瞬间出现突兀色块
@@ -1095,6 +1131,21 @@ const shellOps: ShellOps = {
     void runInstallFlow(win, filePaths[0] ?? '');
     return filePaths[0] ?? '';
   },
+  selectDshDirectory: async () => {
+    const win = mainWindow ?? createWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: '选择 DeepSeek Harness 目录（checkout / 克隆）',
+      properties: ['openDirectory'],
+    });
+    if (canceled || filePaths.length === 0) return;
+    const store = getStore();
+    const config = store.load();
+    config.dshCheckout = filePaths[0] ?? '';
+    store.save(config);
+    writeLog('shell', `dshCheckout set to ${filePaths[0] ?? ''}`);
+    // 重新走启动序列：dshCheckout 使 dshDetected=true → probe=free 走 spawn 自动拉起
+    await startShell(win);
+  },
   testConnection: (config) => testConnection(config),
   discoverModels: (input) => discoverModels(input),
   windowControl: (action) => {
@@ -1294,6 +1345,21 @@ const shellOps: ShellOps = {
 // ---------------------------------------------------------------------------
 // 入口（单实例锁，§3.3）
 // ---------------------------------------------------------------------------
+// 兜底：主进程未捕获异常 / 未处理拒绝 → 先写日志，再让进程按默认行为退出。
+// 否则打包版会静默闪退、无法定位（用户反馈：窗口空白后无报错闪退）。
+process.on('uncaughtException', (error) => {
+  try {
+    writeLog('shell', `UNCAUGHT EXCEPTION: ${error instanceof Error ? (error.stack || error.message) : String(error)}`);
+  } catch { /* 忽略 */ }
+});
+process.on('unhandledRejection', (reason) => {
+  try {
+    writeLog('shell', `UNHANDLED REJECTION: ${reason instanceof Error ? (reason.stack || reason.message) : String(reason)}`);
+  } catch { /* 忽略 */ }
+});
+
+app.on('before-quit', () => { quitting = true; });
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   // app.quit() 在 ready 前调用在 Windows 上不可靠（打包版实测会继续启动，
@@ -1301,8 +1367,13 @@ if (!gotLock) {
   app.exit(0);
 } else {
   app.on('second-instance', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    // 已在运行时再次双击快捷方式：给明确提醒（而不是静默退出或报错）
+    showActionNotice('应用已在运行');
   });
   app.whenReady().then(() => {
     const win = createWindow();

@@ -151,7 +151,7 @@
 
       const STR = {
         zh: {
-          retry: '重试', logs: '查看日志', install: '安装 DeepSeek Harness',
+          retry: '重试', logs: '查看日志', install: '安装 DeepSeek Harness', selectDir: '选择已有 DSH 目录',
           starting: '正在启动服务…',
           preview: '预览模式：未连接壳，按钮不可用。',
           cases: {
@@ -183,7 +183,7 @@
           },
         },
         en: {
-          retry: 'Retry', logs: 'View logs', install: 'Install DeepSeek Harness',
+          retry: 'Retry', logs: 'View logs', install: 'Install DeepSeek Harness', selectDir: 'Select an existing DSH directory',
           starting: 'Starting the service…',
           preview: 'Preview mode: shell bridge not connected.',
           cases: {
@@ -259,7 +259,10 @@
         });
         links.appendChild(b);
       }
-      if (isInstall) addLink(t.retry, () => shell.retry());
+      if (isInstall) {
+        addLink(t.retry, () => shell.retry());
+        addLink(t.selectDir, () => shell.selectDshDirectory());
+      }
       addLink(t.logs, () => shell.openLogs());
 
       // 壳推来的状态一句话（可选订阅，契约：onServiceStatus({status, detail})）
