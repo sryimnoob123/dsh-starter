@@ -32,12 +32,18 @@ export function findGlobalDsh(
   });
 }
 
-/** 安装用 npm 源：默认官方 registry（实测比镜像快约 3.7 倍）；被墙时自动回落镜像（见 runNpmInstall） */
-export const DSH_NPM_REGISTRY = 'https://registry.npmjs.org';
-export const DSH_NPM_REGISTRY_MIRROR = 'https://registry.npmmirror.com';
+/**
+ * 安装用 npm 源：默认 npmmirror（国内镜像）。
+ * 实测本机网络下官方 registry.npmjs.org 频繁 ECONNRESET（连接被墙重置，日志里大量 `attempt 1 failed with ECONNRESET`），
+ * npmmirror 稳定且更快（213ms vs 官方 949ms）。官方源只作失败回落（见 runInstallFlow）。
+ */
+export const DSH_NPM_REGISTRY = 'https://registry.npmmirror.com';
+export const DSH_NPM_REGISTRY_FALLBACK = 'https://registry.npmjs.org';
 
 export function buildNpmInstallArgs(prefix: string, registry: string = DSH_NPM_REGISTRY): string[] {
-  return ['install', '--prefix', prefix, '--registry', registry, DSH_PACKAGE];
+  // --fetch-retries=1：源不稳时快速失败，让回落逻辑尽早接管（否则 npm 会反复重试拖很久）
+  // --no-audit / --no-fund：跳过审计与赞助信息，少打两次网络请求，少一个失败点
+  return ['install', '--prefix', prefix, '--registry', registry, '--fetch-retries=1', '--no-audit', '--no-fund', DSH_PACKAGE];
 }
 
 export function npmCommand(platform: NodeJS.Platform = process.platform): string {
