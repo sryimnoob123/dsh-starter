@@ -7,6 +7,8 @@ export interface ShellConfig {
   port?: number;
   /** 安装向导装出的 DSH 目录（npm --prefix，[FR-22]）；存在且 bin 可用时启动优先用该目录的 dsh */
   installDir?: string;
+  /** 已有 DSH checkout/克隆目录（guide 页"选择已有 DSH 目录"写入；服务掉线时自动从这里拉起，[D90] 服务生命周期归壳） */
+  dshCheckout?: string;
   /** 首启向导是否已完成（[FR-21.1]）；未完成且服务就绪时显示 onboarding */
   onboardingDone?: boolean;
   /** 窗口状态记忆（细化文档 FR-1，V1+） */

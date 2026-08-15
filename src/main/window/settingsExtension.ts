@@ -43,7 +43,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       saved: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
       savedRestart: '设置已保存，正在重启服务…',
       failed: '保存失败：',
-      reuse: '当前复用外部 DSH 服务：身份注入 / persona / 全局指令由该服务的环境决定。',
+      reuse: '当前连接的是已经在运行的服务，全局提示词、身份、Persona 都由它决定，这里只能看、不能改。',
     },
     en: {
       title: 'Global prompt',
@@ -72,7 +72,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       saved: 'Saved. Global instructions sync automatically; identity & persona apply after a service restart.',
       savedRestart: 'Saved — restarting the service…',
       failed: 'Save failed: ',
-      reuse: 'An external DSH service is being reused: identity / persona / global instructions belong to that service.',
+      reuse: 'Connected to an already-running service: the global prompt, identity and persona are all decided there, so these are read-only here.',
     },
   };
   var T = function (key) { return STR[LANG][key]; };
