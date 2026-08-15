@@ -602,11 +602,11 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // 服务生命周期归壳（[D90]）：优先用"选择已有 DSH 目录"落盘的 checkout；其次 DSH_CHECKOUT 环境变量
   const dshCwd = config.dshCheckout ?? process.env.DSH_CHECKOUT ?? '';
   const installedBin = config.installDir !== undefined ? dshBinPath(config.installDir) : null;
-  // 检测本机已装 dsh：checkout 目录 / 当前目录 package.json / 安装目录 dsh / PATH 里的全局 dsh
+  // 检测本机已装 dsh：checkout 目录 / 安装目录 dsh / PATH 里的全局 dsh。
+  // 注意：不能看 process.cwd()/package.json——壳的 cwd 继承自启动它的进程，与 DSH 是否已装无关，会误判。
   const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
   const dshDetected =
     dshCwd !== '' ||
-    existsSync(join(process.cwd(), 'package.json')) ||
     (installedBin !== null && existsSync(installedBin)) ||
     globalDsh;
 
@@ -614,10 +614,10 @@ async function startShell(win: BrowserWindow): Promise<void> {
   if (dshDetected && config.installDir === undefined && config.dshChoice === undefined) {
     const { response } = await dialog.showMessageBox(win, {
       type: 'question',
-      title: '检测到已安装的 DeepSeek Harness',
-      message: '检测到你电脑上已经装了 DeepSeek Harness。',
-      detail: '可以继续用它，也可以重新下载一份到本应用目录。',
-      buttons: ['用它', '重新下载'],
+      title: '要用哪个 DeepSeek Harness？',
+      message: '检测到你电脑上已经装了一份。',
+      detail: '「用已装的」直接开始；「下载新的」会下载一份到本应用目录。',
+      buttons: ['用已装的', '下载新的到本应用目录'],
       defaultId: 0,
       cancelId: 0,
     });
@@ -746,7 +746,9 @@ async function startShell(win: BrowserWindow): Promise<void> {
     });
     setTimeout(() => {
       if (!ready) reject(new Error('readiness timeout'));
-    }, 30000);
+      // 首次冷启动（checkout 直跑 + 首次建 dsh-home 要下载/链接 profiles 依赖）可能超过 30s，
+      // 放宽到 90s 防误判；服务就绪慢≠失败，reject 后服务进程仍在、下次探测会复用
+    }, 90_000);
   });
 
   try {
