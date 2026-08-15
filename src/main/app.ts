@@ -23,7 +23,7 @@ import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from '
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { saveConnectionToService } from './onboarding/dshConfig.js';
-import { buildNpmInstallArgs, dshBinPath, dshEntryJsPath, findGlobalDsh } from './install/dshPackage.js';
+import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_MIRROR, dshBinPath, dshEntryJsPath, findGlobalDsh } from './install/dshPackage.js';
 import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
@@ -1108,9 +1108,9 @@ async function restartService(win: BrowserWindow): Promise<void> {
 let installRunning = false;
 
 /** npm install --prefix <目录> @deepseek-ai/dsh；stdout 尾巴推给页面当进度文案 + 渐进式进度条 */
-function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string): Promise<number | null> {
+function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string, registry: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const child = spawn(npmCmd, buildNpmInstallArgs(dir), {
+    const child = spawn(npmCmd, buildNpmInstallArgs(dir, registry), {
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -1156,11 +1156,17 @@ async function runInstallFlow(win: BrowserWindow, dir: string): Promise<void> {
       onProgress: (detail) => sendProgress(win, { phase: 'download', percent: -1, detail }),
     });
     sendProgress(win, { phase: 'download', percent: -1, detail: `正在下载 DSH 到 ${dir} …` });
-    const code = await runNpmInstall(dir, win, runtime.npmCmd);
+    // 先走官方 registry（实测更快），失败（被墙/网络问题）自动回落 npmmirror 镜像重试一次
+    let code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY);
+    if (code !== 0) {
+      writeLog('shell', `npm install via official registry failed (code=${code}), falling back to mirror`);
+      sendProgress(win, { phase: 'install', percent: 0, detail: '官方源下载失败，切换到镜像源重试…' });
+      code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY_MIRROR);
+    }
     if (code !== 0) {
       // 页面 error 步自带"重新安装/查看日志"按钮，不再 reload 回 ask
       const detail =
-        '安装失败。网络不通时可给 npm 配置镜像（registry.npmmirror.com）或开启代理后重试；详情见日志。';
+        '安装失败。网络不通时请开启代理后重试；详情见日志。';
       sendProgress(win, { phase: 'error', percent: -1, detail });
       return;
     }
