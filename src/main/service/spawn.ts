@@ -1,21 +1,15 @@
 /**
- * dsh web 启动命令构造（架构文档 §4.1/§8.7）：
- * - `dsh web --port <n>`，可选 `--patch <桌面基线>`（launcher/web 均支持，调研 A）
- * - DSH_HOME 仅经环境变量注入（安装向导独立实例 [FR-22.4]）
+ * dsh web 启动命令构造（架构文档 §4.1）：
+ * - `dsh web --port <n>`；persona/身份经 home patch（$DSH_HOME/cordis.patch.yml）热重载注入，无需 --patch
+ * - DSH_HOME 仅经环境变量注入（managed 模式统一指向安装目录下的 dsh-home）
  */
 
 export interface SpawnOptions {
   port: number;
-  /** 桌面 patch 基线（userData/desktop.patch.yml），无则不传 */
-  patchFile?: string;
 }
 
 export function buildCommandArgs(options: SpawnOptions): string[] {
-  const args = ['dsh', 'web', '--port', String(options.port)];
-  if (options.patchFile) {
-    args.push('--patch', options.patchFile);
-  }
-  return args;
+  return ['dsh', 'web', '--port', String(options.port)];
 }
 
 export interface SpawnSpec {
@@ -37,23 +31,20 @@ export function buildSpawnSpec(
 }
 
 /**
- * 自备 Node 直跑 DSH CLI：`node <dsh-lib/bin.js> web --port <n> [--patch …]`。
+ * 自备 Node 直跑 DSH CLI：`node <dsh-lib/bin.js> web --port <n>`。
  * 用于打包版（安装向导装出的 DSH + 自下载的 Node），不依赖系统 node/npm。
  */
 export function buildNodeSpawnSpec(options: {
   nodeExe: string;
   dshEntry: string;
   port: number;
-  patchFile?: string;
 }): SpawnSpec {
-  const args = [options.dshEntry, 'web', '--port', String(options.port)];
-  if (options.patchFile) args.push('--patch', options.patchFile);
-  return { command: options.nodeExe, args };
+  return { command: options.nodeExe, args: [options.dshEntry, 'web', '--port', String(options.port)] };
 }
 
 /**
  * DSH checkout 直跑（[D90] 用户"选择已有 DSH 目录"）：`node --import tsx/esm apps/cli/src/bin.ts web --port <n>`，
- * 与用户 start.bat 完全一致（不走 pnpm，避免 pnpm 依赖/慢启动）。不注入 --patch（dev checkout 不需要壳基线）。
+ * 与用户 start.bat 完全一致（不走 pnpm，避免 pnpm 依赖/慢启动）。
  */
 export function buildCheckoutSpawnSpec(options: { port: number }): SpawnSpec {
   return {

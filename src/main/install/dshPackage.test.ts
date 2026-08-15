@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildNpmInstallArgs, defaultInstallDir, dshBinPath, dshEntryJsPath, DSH_NPM_REGISTRY, DSH_PACKAGE, npmCommand } from './dshPackage.js';
+import { buildNpmInstallArgs, dshBinPath, dshEntryJsPath, DSH_NPM_REGISTRY, DSH_PACKAGE, findGlobalDsh, npmCommand } from './dshPackage.js';
 
 describe('buildNpmInstallArgs', () => {
   it('锁定 npm install --prefix <目录> --registry <镜像> <包名> 顺序', () => {
@@ -54,18 +54,24 @@ describe('npmCommand', () => {
   });
 });
 
-describe('defaultInstallDir（安装向导默认目录，交付页文案"用默认目录就好"的落地）', () => {
-  it('win32 + LOCALAPPDATA → %LOCALAPPDATA%\\deepseekharness\\dsh', () => {
-    expect(
-      defaultInstallDir('win32', { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' }, '/fallback'),
-    ).toBe('C:\\Users\\me\\AppData\\Local\\deepseekharness\\dsh');
+describe('findGlobalDsh（检测 PATH 里的全局 dsh 命令，managed 模式优先复用本机已装）', () => {
+  it('win32：PATH 里任一目录有 dsh.cmd → true', () => {
+    const exists = (p: string) => p === 'C:\\tools\\node\\dsh.cmd';
+    expect(findGlobalDsh('win32', 'C:\\a;C:\\tools\\node;C:\\b', exists)).toBe(true);
   });
 
-  it('win32 缺 LOCALAPPDATA → fallback 下 dsh', () => {
-    expect(defaultInstallDir('win32', {}, 'C:\\Users\\me')).toBe('C:\\Users\\me\\dsh');
+  it('win32：PATH 里只有目录没有 dsh.cmd → false', () => {
+    const exists = () => false;
+    expect(findGlobalDsh('win32', 'C:\\a;C:\\b', exists)).toBe(false);
   });
 
-  it('非 win32 → ~/.dsh-desktop/dsh（POSIX 拼接）', () => {
-    expect(defaultInstallDir('linux', {}, '/home/me')).toBe('/home/me/.dsh-desktop/dsh');
+  it('非 win32：PATH 里任一目录有 dsh（无后缀）→ true', () => {
+    const exists = (p: string) => p === '/usr/local/bin/dsh';
+    expect(findGlobalDsh('linux', '/bin:/usr/local/bin:/usr/bin', exists)).toBe(true);
+  });
+
+  it('空 PATH / 空目录 → false，不抛错', () => {
+    expect(findGlobalDsh('win32', '', () => false)).toBe(false);
+    expect(findGlobalDsh('linux', '::', () => false)).toBe(false);
   });
 });

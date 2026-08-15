@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { join } from 'node:path';
 import {
   buildDesktopPatchYaml,
+  cordisPatchPath,
   defaultPromptUserConfig,
   desktopDshHome,
-  externalAgentsPath,
   globalAgentsPath,
   isPromptCustomized,
   normalizePromptConfig,
-  resolveExternalDshHome,
   WEB_BASE_PERSONA,
 } from './promptSettings.js';
 
@@ -91,29 +89,22 @@ describe('buildDesktopPatchYaml', () => {
   });
 });
 
-describe('路径', () => {
-  it('desktopDshHome = userData/dsh-home（与 spawn env 一致，[D80]）', () => {
-    expect(desktopDshHome('C:\\Users\\x\\AppData\\Roaming\\deepseekharness')).toBe(
-      'C:\\Users\\x\\AppData\\Roaming\\deepseekharness\\dsh-home',
+describe('路径（managed 模式，无外部服务）', () => {
+  it('desktopDshHome = <安装目录>/dsh-home（壳 exe+dsh+数据三样同目录，与 spawn env 一致）', () => {
+    expect(desktopDshHome('E:\\TOOLS\\deepseek-harness-starter')).toBe(
+      'E:\\TOOLS\\deepseek-harness-starter\\dsh-home',
     );
   });
 
-  it('globalAgentsPath = <dshHome>/AGENTS.md（[FR-16.7]）', () => {
+  it('globalAgentsPath = <dshHome>/AGENTS.md（[FR-16.7] 所见即所注入）', () => {
     const p = globalAgentsPath('/data/user');
     expect(p.endsWith('AGENTS.md')).toBe(true);
     expect(p).toContain('dsh-home');
   });
-});
 
-describe('复用模式外部 DSH_HOME（[D90] 全局指令编辑落点）', () => {
-  it('默认 ~/.deepseek-harness；AGENTS.md 挂在其下', () => {
-    const home = resolveExternalDshHome();
-    expect(home.endsWith('.deepseek-harness')).toBe(true);
-    expect(externalAgentsPath()).toBe(join(home, 'AGENTS.md'));
-  });
-
-  it('配置指定 DSH_HOME 时用配置', () => {
-    expect(resolveExternalDshHome('D:\\data\\dsh')).toBe('D:\\data\\dsh');
-    expect(externalAgentsPath('D:\\data\\dsh')).toBe(join('D:\\data\\dsh', 'AGENTS.md'));
+  it('cordisPatchPath = <dshHome>/cordis.patch.yml（home patch，热重载即生效）', () => {
+    const p = cordisPatchPath('/data/user');
+    expect(p.endsWith('cordis.patch.yml')).toBe(true);
+    expect(p).toContain('dsh-home');
   });
 });

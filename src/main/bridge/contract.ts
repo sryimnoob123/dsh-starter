@@ -102,16 +102,16 @@ export interface ConnectionResult {
 // 提示词管理（FR-16 V1：身份注入开关 + persona + 全局指令文件；设置页契约）
 // ---------------------------------------------------------------------------
 
-/** managed = 壳拉起服务（--patch 与 DSH_HOME 归壳管，三项都可编辑）；reuse = 复用外部服务（只读引导） */
-export type PromptMode = 'managed' | 'reuse';
+/** managed = 壳拉起服务（DSH_HOME 归壳管，三项都可编辑）；不再有 reuse 外部服务模式 */
+export type PromptMode = 'managed';
 
 export interface PromptSettingsState {
   mode: PromptMode;
   includeHarnessIdentity: boolean;
   persona: string;
-  /** 全局指令文件当前内容；reuse 模式为空串 */
+  /** 全局指令文件当前内容 */
   globalPrompt: string;
-  /** 全局指令文件路径；reuse 模式为 null（路径由外部服务的环境决定） */
+  /** 全局指令文件路径 */
   globalPromptPath: string | null;
   /** 任务结果桌面通知开关（[FR-4.3] 类型开关；默认开） */
   notifyResult: boolean;

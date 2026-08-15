@@ -57,7 +57,7 @@ export interface ShellOps {
   discoverModels(input: { baseUrl: string; apiKey: string }): Promise<{ ok: boolean; models: string[]; message?: string }>;
   /** 提示词管理：读取当前设置与全局指令文件（[FR-16]） */
   getPromptSettings(): PromptSettingsState;
-  /** 提示词管理：保存身份开关/persona/全局指令；restart=true 时重启壳拉起的服务以应用 --patch；uiTheme（三态）即时生效 */
+  /** 提示词管理：保存身份开关/persona/全局指令；restart=true 时重启壳拉起的服务；uiTheme（三态）即时生效 */
   savePromptSettings(input: { includeHarnessIdentity: boolean; persona: string; globalPrompt: string; restart: boolean; notifyResult?: boolean; uiTheme?: 'system' | 'dark' | 'light' }): Promise<SavePromptSettingsResult>;
   /** 通知历史（[D31]）：新→旧，最多 500 条 */
   readNotifications(): NotificationHistoryEntry[];

@@ -65,14 +65,12 @@ describe('SETTINGS_EXTENSION_SCRIPT（DSH 官方设置扩展）', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('usageTitle');
   });
 
-  it('生效状态徽标：壳管模式（🟢）/ 外部模式（🔴）+ 双语', () => {
+  it('生效状态徽标：壳管模式（🟢）+ 双语', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-mode');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain("modeManaged: '壳管模式'");
     expect(SETTINGS_EXTENSION_SCRIPT).toContain("modeManaged: 'Shell-managed'");
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain("modeReuse: '外部模式'");
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('state.mode === \'managed\'');
+    expect(SETTINGS_EXTENSION_SCRIPT).not.toContain('modeReuse');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('🟢');
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('🔴');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain("editingPath: '正在编辑：'");
     expect(SETTINGS_EXTENSION_SCRIPT).toContain("editingPath: 'Editing: '");
   });

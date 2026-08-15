@@ -19,38 +19,35 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     zh: {
       title: '全局提示词',
       globalTitle: '全局系统提示词',
-      globalHint: '每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容，保存即生效。',
+      globalHint: '写在这里的内容，每次对话都会自动带上。改完点保存，马上生效。',
       globalPlaceholder: '在这里写全局规则，例如：\\n\\n- 用中文回答\\n- 先想清楚再动手',
       injectTitle: '注入开关',
-      injectHint: '两个注入开关：身份声明与 Persona。可以一键启用默认注入。',
+      injectHint: '下面两个开关，决定每次对话要不要额外带上「身份」和「人设」这两段文字。',
       identity: '身份注入',
-      identityHint: '在每轮系统提示词开头加上一行 DSH 身份声明（默认关闭）。',
-      persona: 'Persona 注入',
-      personaHint: '拼接在系统提示词里的常驻段落；支持 {{model}} 与 {{cwd}}。关闭 = 不注入。',
-      personaTpl: 'Persona 模板',
-      oneClick: '一键注入默认提示词',
+      identityHint: '勾上后，每次对话开头会加一句「我是 DeepSeek Harness」。默认不勾。',
+      persona: '人设注入',
+      personaHint: '勾上后，你写的人设会一直拼在对话里。支持 {{model}} 和 {{cwd}} 两个占位符。不勾 = 不注入。',
+      personaTpl: '人设模板',
+      oneClick: '一键填入默认提示词',
       projectTitle: '项目级指令',
-      projectHint: '每个工作区自己的 AGENTS.md。保存后该工作区的会话自动同步。',
+      projectHint: '只对某个工作区生效的规则，存在那个工作区的 AGENTS.md 里。',
       projectSave: '保存到该工作区',
-      projectNone: '没有工作区，或服务未在运行。',
+      projectNone: '没有工作区，或服务没在运行。',
       projectSaved: '已保存。',
       projectFailed: '保存失败：',
       notifyTitle: '通知',
       notifyLabel: '任务结果桌面通知',
-      notifyHint: '任务完成 / 失败时弹桌面通知，点击可回到对应会话。',
+      notifyHint: '任务做完或失败时，弹个桌面通知提醒你，点它能回到对应会话。',
       save: '保存',
-      saveRestart: '保存并重启服务',
-      saved: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
-      savedRestart: '设置已保存，正在重启服务…',
+      saveRestart: '重启并加载',
+      saved: '已保存，马上生效。',
+      savedRestart: '已保存，正在重启服务…',
       failed: '保存失败：',
-      reuse: '当前连接的是已经在运行的服务：全局提示词可直接编辑（新会话生效）；身份 / Persona 改动需重启服务后生效。',
       modeManaged: '壳管模式',
-      modeReuse: '外部模式',
       editingPath: '正在编辑：',
-      modeManagedHint: '服务由本应用启动并接管：全局指令与身份 / Persona 均即时生效（改身份 / Persona 会自动重启接回会话）。',
-      modeReuseHint: '服务由外部启动：全局指令写入外部服务真实读取的 AGENTS.md（新会话生效）；身份 / Persona 改动需手动重启外部服务。',
+      modeManagedHint: '服务由本应用启动和管理。你在这里改的东西，保存后马上生效，不用做任何别的操作。',
       usageTitle: '用量统计',
-      usageHint: '全部会话的累计用量（token / 耗时 / 活动）。',
+      usageHint: '所有会话加起来的用量（token / 耗时 / 活动）。',
       usageTokensTitle: 'Token',
       usageTimeTitle: '耗时',
       usageActivityTitle: '活动',
@@ -73,36 +70,33 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     en: {
       title: 'Global prompt',
       globalTitle: 'Global system prompt',
-      globalHint: 'The global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; save applies it.',
+      globalHint: 'Whatever you write here is added to every conversation. Save applies it right away.',
       globalPlaceholder: 'Write global rules here, e.g.:\\n\\n- Answer in Chinese\\n- Think before acting',
       injectTitle: 'Injection switches',
-      injectHint: 'Two switches: identity statement and persona. Enable the defaults with one click.',
+      injectHint: 'Two switches that decide whether to add the identity and persona texts to every conversation.',
       identity: 'Identity injection',
-      identityHint: 'Prepends a DSH identity line to every system prompt (off by default).',
+      identityHint: 'When on, each conversation starts with a line saying "I am DeepSeek Harness". Off by default.',
       persona: 'Persona injection',
-      personaHint: 'A standing paragraph appended to the system prompt; supports {{model}} and {{cwd}}. Off = not injected.',
+      personaHint: 'When on, the persona you write is always included in conversations. Supports {{model}} and {{cwd}}. Off = not injected.',
       personaTpl: 'Persona template',
-      oneClick: 'Inject default prompts with one click',
+      oneClick: 'Fill default prompt with one click',
       projectTitle: 'Project instructions',
-      projectHint: 'Per-workspace AGENTS.md. Sessions in that workspace sync automatically after saving.',
+      projectHint: 'Rules for one workspace only, stored in that workspace\\'s AGENTS.md.',
       projectSave: 'Save to workspace',
       projectNone: 'No workspaces, or the service is not running.',
       projectSaved: 'Saved.',
       projectFailed: 'Save failed: ',
       notifyTitle: 'Notifications',
       notifyLabel: 'Job result desktop notifications',
-      notifyHint: 'Desktop notification when a job finishes or fails; clicking it jumps to the session.',
+      notifyHint: 'A desktop notification when a job finishes or fails; clicking it jumps to the session.',
       save: 'Save',
-      saveRestart: 'Save & restart service',
-      saved: 'Saved. Global instructions sync automatically; identity & persona apply after a service restart.',
+      saveRestart: 'Restart & reload',
+      saved: 'Saved — applied right away.',
       savedRestart: 'Saved — restarting the service…',
       failed: 'Save failed: ',
-      reuse: 'Connected to an already-running service: the global prompt is editable here (applies to new sessions); identity and persona changes take effect after a restart.',
       modeManaged: 'Shell-managed',
-      modeReuse: 'External',
       editingPath: 'Editing: ',
-      modeManagedHint: 'The service is started and managed by this app: global prompt and identity/persona all apply immediately (changing identity/persona auto-restarts and reattaches your session).',
-      modeReuseHint: 'The service was started externally: the global prompt writes to the AGENTS.md that external service actually reads (applies to new sessions); identity/persona changes need a manual restart of the external service.',
+      modeManagedHint: 'The service is started and managed by this app. Anything you change here takes effect right after you save — no other steps needed.',
       usageTitle: 'Usage',
       usageHint: 'Cumulative usage across all sessions (tokens / time / activity).',
       usageTokensTitle: 'Tokens',
@@ -156,13 +150,9 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     '#dsh-gp-section .dsh-gp-status{display:block;min-height:20px;margin-top:8px;font-size:13px;' +
     'color:var(--dsw-alias-label-secondary,#b6b4ab);}' +
     '#dsh-gp-section .dsh-gp-status.err{color:var(--dsw-alias-state-error-primary,#d98678);}' +
-    '#dsh-gp-section .dsh-gp-banner{margin:0 0 12px;padding:8px 12px;border-radius:9px;' +
-    'border:1px solid var(--dsw-alias-border-l2,#393836);background:var(--dsw-alias-bg-layer-2,#1c1b1a);' +
-    'color:var(--dsw-alias-label-secondary,#b6b4ab);font-size:13px;}' +
     '#dsh-gp-section .dsh-gp-mode{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;' +
     'font-weight:600;line-height:18px;margin:0 0 8px;border:1px solid transparent;}' +
     '#dsh-gp-section .dsh-gp-mode--managed{color:#3fb37a;background:rgba(63,179,122,0.12);border-color:rgba(63,179,122,0.35);}' +
-    '#dsh-gp-section .dsh-gp-mode--reuse{color:#d98678;background:rgba(217,134,120,0.12);border-color:rgba(217,134,120,0.35);}' +
     '#dsh-gp-usage-section{color:var(--dsw-alias-label-primary,#e8e6dd);flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:0 24px 24px;box-sizing:border-box;font-size:14px;line-height:1.5;}' +
     '#dsh-gp-usage-section h2{margin:0 0 4px;font-size:15px;font-weight:600;}' +
     '#dsh-gp-usage-section h3{margin:18px 0 6px;font-size:14px;font-weight:500;}' +
@@ -240,24 +230,12 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       document.getElementById('dsh-gp-notify').checked = state.notifyResult !== false;
       var modeEl = document.getElementById('dsh-gp-mode');
       var modeHintEl = document.getElementById('dsh-gp-mode-hint');
-      if (state.mode === 'managed') {
-        modeEl.textContent = '🟢 ' + T('modeManaged');
-        modeEl.className = 'dsh-gp-mode dsh-gp-mode--managed';
-        if (modeHintEl) modeHintEl.textContent = T('modeManagedHint');
-        document.getElementById('dsh-gp-global').value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
-        document.getElementById('dsh-gp-path').textContent = state.globalPromptPath ? T('editingPath') + state.globalPromptPath : '';
-      } else {
-        modeEl.textContent = '🔴 ' + T('modeReuse');
-        modeEl.className = 'dsh-gp-mode dsh-gp-mode--reuse';
-        if (modeHintEl) modeHintEl.textContent = T('modeReuseHint');
-        // 复用外部服务：全局指令可编辑（落到外部服务真实读的 AGENTS.md）；身份/persona 也放开（保存后提示需重启）
-        document.getElementById('dsh-gp-global').value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
-        document.getElementById('dsh-gp-path').textContent = state.globalPromptPath ? T('editingPath') + state.globalPromptPath : '';
-        document.getElementById('dsh-gp-banner').style.display = '';
-        // 外部服务模式不接管重启：禁用重启按钮（身份/persona 保存只提示"需重启"，不强行重启别人的服务）
-        var restartBtn = document.getElementById('dsh-gp-save-restart');
-        if (restartBtn) restartBtn.disabled = true;
-      }
+      // managed 模式：壳自己管服务，改动保存即生效、重启按钮始终可点
+      modeEl.textContent = '🟢 ' + T('modeManaged');
+      modeEl.className = 'dsh-gp-mode dsh-gp-mode--managed';
+      if (modeHintEl) modeHintEl.textContent = T('modeManagedHint');
+      document.getElementById('dsh-gp-global').value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
+      document.getElementById('dsh-gp-path').textContent = state.globalPromptPath ? T('editingPath') + state.globalPromptPath : '';
       // 项目级指令
       var pr = await shell.listProjectInstructions();
       var sel = document.getElementById('dsh-gp-ws');
@@ -301,7 +279,6 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       '<span class="dsh-gp-mode" id="dsh-gp-mode"></span>' +
       '<p class="dsh-gp-hint" id="dsh-gp-mode-hint"></p>' +
       '<p class="dsh-gp-hint">' + T('globalHint') + '</p>' +
-      '<div class="dsh-gp-banner" id="dsh-gp-banner" style="display:none">' + T('reuse') + '</div>' +
       '<p class="dsh-gp-path" id="dsh-gp-path"></p>' +
       '<textarea id="dsh-gp-global" rows="8" spellcheck="false" placeholder="' + T('globalPlaceholder') + '"></textarea>' +
       '<h3>' + ICON('power') + T('injectTitle') + '</h3>' +
