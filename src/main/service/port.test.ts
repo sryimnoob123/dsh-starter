@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { decidePort, DEFAULT_PORT, nextFreeCandidates } from './port.js';
 
-describe('decidePort（智能端口决策，[FR-25.3]）', () => {
-  it('reuses a running dsh on the remembered port', () => {
-    expect(decidePort('dsh', { remembered: 3090 })).toEqual({ action: 'reuse', port: 3090 });
+describe('decidePort（智能端口决策，[FR-25.3] / managed 模式）', () => {
+  it('dsh 占用 → 自动换空闲端口（不弹窗），候选从被占端口之后开始', () => {
+    expect(decidePort('dsh', { remembered: 3090 })).toEqual({
+      action: 'next-free',
+      candidatePorts: [3091, 3092, 3093],
+    });
+  });
+
+  it('dsh 占用默认端口 → 候选 3081/3082/3083', () => {
+    expect(decidePort('dsh')).toEqual({ action: 'next-free', candidatePorts: [3081, 3082, 3083] });
   });
 
   it('spawns on the default port when nothing is remembered and port is free', () => {
@@ -18,7 +25,7 @@ describe('decidePort（智能端口决策，[FR-25.3]）', () => {
     expect(decision.candidatePorts).toEqual([3081, 3082, 3083]);
   });
 
-  it('uses the remembered port over the default', () => {
+  it('uses the remembered port over the default when free', () => {
     expect(decidePort('free', { remembered: 5000 })).toEqual({ action: 'spawn', port: 5000 });
   });
 });

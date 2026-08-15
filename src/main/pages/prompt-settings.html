@@ -197,8 +197,6 @@
         <button class="oc-btn oc-btn--ghost" id="backBtn" type="button"></button>
       </div>
 
-      <div class="oc-banner" id="reuseBanner" hidden></div>
-
       <section class="oc-section">
         <h2 id="gGlobalTitle"></h2>
         <p class="oc-desc" id="gGlobalHint"></p>
@@ -322,31 +320,29 @@
         zh: {
           docTitle: '设置',
           title: '设置',
-          lede: '管理提示词注入、项目级指令、通知与外观。改动只影响桌面端自己拉起的服务；保存即生效。',
-          reuseBanner:
-            '当前连接的是已经在运行的服务：全局提示词、身份、Persona 都由那个服务决定，这里只能看、不能改（通知开关与外观除外）。想在这里改，先在原处停掉那个服务，再回到桌面端重新启动。',
+          lede: '管理提示词注入、项目级指令、通知与外观。改完点保存，马上生效。',
           preview: '预览模式：未连接壳，编辑不会保存。',
           gGlobalTitle: '全局系统提示词',
-          gGlobalHint: '这个文件就是 DSH 每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容；DSH 检测到文件变化后自动同步到会话。',
+          gGlobalHint: '写在这里的内容，每次对话都会自动带上。改完点保存，马上生效。',
           gGlobalPlaceholder: '在这里写全局规则，例如：\n\n- 用中文回答\n- 先想清楚再动手',
           gInjectTitle: '系统提示词注入',
-          gInjectHint: '两个注入开关：身份声明与 Persona。可以一键启用默认注入，也可以单独调整。',
+          gInjectHint: '下面两个开关，决定每次对话要不要额外带上「身份」和「人设」这两段文字。',
           gIdentityLabel: '身份注入',
-          gIdentityHint: '在每轮系统提示词开头加上一行 DSH 身份声明。默认关闭。',
-          gPersonaTitle: 'Persona 注入',
-          gPersonaHint: '拼接在系统提示词里的常驻段落；支持 {{model}} 与 {{cwd}} 变量。关闭 = 不注入。',
-          gPersonaTemplate: 'Persona 模板',
+          gIdentityHint: '勾上后，每次对话开头会加一句「我是 DeepSeek Harness」。默认不勾。',
+          gPersonaTitle: '人设注入',
+          gPersonaHint: '勾上后，你写的人设会一直拼在对话里。支持 {{model}} 和 {{cwd}} 两个占位符。不勾 = 不注入。',
+          gPersonaTemplate: '人设模板',
           gPersonaTemplateHint: '打开开关即注入；修改模板后保存生效。',
-          injectDefaults: '一键注入默认提示词',
+          injectDefaults: '一键填入默认提示词',
           gProjectTitle: '项目级指令',
-          gProjectHint: '每个工作区自己的规则文件（DSH 同时认 AGENTS.md 与 CLAUDE.md，这里编辑 AGENTS.md）。保存后该工作区的会话自动同步。',
+          gProjectHint: '只对某个工作区生效的规则，存在那个工作区的 AGENTS.md 里。',
           projectSave: '保存到该工作区',
           projectLoading: '正在读取工作区…',
-          projectNone: '没有工作区，或服务未在运行。',
+          projectNone: '没有工作区，或服务没在运行。',
           projectSaved: '已保存。',
           projectFailed: '保存失败：',
           gNotifyTitle: '通知',
-          gNotifyHint: '任务完成 / 失败时弹桌面通知。关闭后静音，服务与窗口不受影响。',
+          gNotifyHint: '任务做完或失败时，弹个桌面通知提醒你，点它能回到对应会话。',
           gNotifyLabel: '任务结果通知',
           gAppearanceTitle: '外观',
           gAppearanceHint: '整窗配色（Codex 风）。切换即时生效，下次启动保持。',
@@ -362,41 +358,38 @@
           gTemplatesNote:
             '子 agent 派发/汇总模板、计划模式提示词目前写死在 DSH 内置预设里，DSH 还没有开放终端用户编辑这些模板的接口。想定制流程，可以把规范写进上面的全局指令文件，效果等同。',
           save: '保存',
-          saveRestart: '保存并重启服务',
-          saved: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
-          savedRestart: '设置已保存，正在重启服务…',
+          saveRestart: '重启并加载',
+          saved: '已保存，马上生效。',
+          savedRestart: '已保存，正在重启服务…',
           failed: '保存失败：',
-          disabled: '（外部服务模式，只读）',
           back: '返回对话',
         },
         en: {
           docTitle: 'Settings',
           title: 'Settings',
-          lede: 'Manage prompt injection, project instructions, notifications and appearance. Changes only affect the service started by this app and apply on save.',
-          reuseBanner:
-            'Connected to an already-running service: the global prompt, identity and persona are all decided there, so these are read-only here (notifications and appearance still work). To edit here, stop that service where it was started, then restart from this app.',
+          lede: 'Manage prompt injection, project instructions, notifications and appearance. Save applies changes right away.',
           preview: 'Preview mode: no shell connected, edits are not saved.',
           gGlobalTitle: 'Global system prompt',
-          gGlobalHint: 'This file is the global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; DSH picks up changes automatically.',
+          gGlobalHint: 'Whatever you write here is added to every conversation. Save applies it right away.',
           gGlobalPlaceholder: 'Write global rules here, e.g.:\n\n- Answer in Chinese\n- Think before acting',
           gInjectTitle: 'System prompt injection',
-          gInjectHint: 'Two injection switches: identity statement and persona. Enable the defaults with one click, or adjust each separately.',
+          gInjectHint: 'Two switches that decide whether to add the identity and persona texts to every conversation.',
           gIdentityLabel: 'Identity injection',
-          gIdentityHint: 'Prepends a DSH identity line to every system prompt. Off by default.',
+          gIdentityHint: 'When on, each conversation starts with a line saying "I am DeepSeek Harness". Off by default.',
           gPersonaTitle: 'Persona injection',
-          gPersonaHint: 'A standing paragraph appended to the system prompt; supports the {{model}} and {{cwd}} variables. Off = not injected.',
+          gPersonaHint: 'When on, the persona you write is always included in conversations. Supports {{model}} and {{cwd}}. Off = not injected.',
           gPersonaTemplate: 'Persona template',
           gPersonaTemplateHint: 'Injected when the switch is on; edits apply on save.',
-          injectDefaults: 'Inject default prompts with one click',
+          injectDefaults: 'Fill default prompt with one click',
           gProjectTitle: 'Project instructions',
-          gProjectHint: 'Per-workspace rules file (DSH reads both AGENTS.md and CLAUDE.md; this panel edits AGENTS.md). Sessions in that workspace sync automatically after saving.',
+          gProjectHint: 'Rules for one workspace only, stored in that workspace AGENTS.md.',
           projectSave: 'Save to workspace',
           projectLoading: 'Loading workspaces…',
           projectNone: 'No workspaces, or the service is not running.',
           projectSaved: 'Saved.',
           projectFailed: 'Save failed: ',
           gNotifyTitle: 'Notifications',
-          gNotifyHint: 'Desktop notifications when a job finishes or fails. Turning them off silences them without affecting the service or the window.',
+          gNotifyHint: 'A desktop notification when a job finishes or fails; clicking it jumps to the session.',
           gNotifyLabel: 'Job result notifications',
           gAppearanceTitle: 'Appearance',
           gAppearanceHint: 'Window-wide color scheme (Codex style). Switching applies immediately and persists across restarts.',
@@ -412,11 +405,10 @@
           gTemplatesNote:
             'Sub-agent dispatch/summary templates and plan-mode prompts currently live inside DSH’s shipped presets, and DSH has no end-user API for editing them yet. To customize flows, write your conventions into the global prompt file above — equivalent effect.',
           save: 'Save',
-          saveRestart: 'Save & restart service',
-          saved: 'Saved. Global instructions sync automatically; identity & persona apply after a service restart.',
+          saveRestart: 'Restart & reload',
+          saved: 'Saved — applied right away.',
           savedRestart: 'Saved — restarting the service…',
           failed: 'Save failed: ',
-          disabled: '(external service, read-only)',
           back: 'Back to chat',
         },
       };
@@ -425,7 +417,7 @@
 
       const $ = (id) => document.getElementById(id);
       const el = {
-        title: $('title'), lede: $('lede'), reuseBanner: $('reuseBanner'), backBtn: $('backBtn'),
+        title: $('title'), lede: $('lede'), backBtn: $('backBtn'),
         gGlobalTitle: $('gGlobalTitle'), gGlobalHint: $('gGlobalHint'),
         globalPath: $('globalPath'), globalPrompt: $('globalPrompt'),
         gInjectTitle: $('gInjectTitle'), gInjectHint: $('gInjectHint'),
@@ -450,7 +442,6 @@
       function applyText() {
         el.title.textContent = t.title;
         el.lede.textContent = t.lede;
-        el.reuseBanner.textContent = t.reuseBanner;
         el.backBtn.textContent = t.back;
         el.gGlobalTitle.textContent = t.gGlobalTitle;
         el.gGlobalHint.textContent = t.gGlobalHint;
@@ -488,12 +479,6 @@
       function setStatus(text, isErr) {
         el.status.textContent = text;
         el.status.className = 'oc-status' + (isErr ? ' err' : '');
-      }
-
-      function setEditable(on) {
-        for (const node of [el.globalPrompt, el.identityToggle, el.personaToggle, el.persona]) {
-          node.disabled = !on;
-        }
       }
 
       function buildPayload(restart) {
@@ -667,15 +652,8 @@
           themeChoice = theme;
           setThemeRadio(theme);
           setPageTheme(themeResolved);
-          if (state.mode === 'managed') {
-            el.globalPrompt.value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
-            el.globalPath.textContent = state.globalPromptPath || '';
-          } else {
-            el.reuseBanner.hidden = false;
-            el.globalPath.textContent = '';
-            setEditable(false);
-            el.saveRestartBtn.disabled = true;
-          }
+          el.globalPrompt.value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
+          el.globalPath.textContent = state.globalPromptPath || '';
         } catch (error) {
           setStatus(t.failed + String(error), true);
         }

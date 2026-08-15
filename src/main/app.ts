@@ -6,9 +6,9 @@ import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
 import { ConfigStore } from './config/store.js';
 import { classifyProbe, parseReadyUrlLine } from './service/detect.js';
-import { decidePort, nextFreeCandidates } from './service/port.js';
+import { decidePort } from './service/port.js';
 import { decideStartup } from './service/startup.js';
-import { buildCheckoutSpawnSpec, buildCommandArgs, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
+import { buildCheckoutSpawnSpec, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
 import { isNodeOk } from './service/nodeCheck.js';
 import { Registry } from './extensions/registry.js';
 import { classifyEvent, type MuxFrame } from './notify/classify.js';
@@ -23,7 +23,7 @@ import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from '
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { saveConnectionToService } from './onboarding/dshConfig.js';
-import { buildNpmInstallArgs, defaultInstallDir, dshBinPath, dshEntryJsPath } from './install/dshPackage.js';
+import { buildNpmInstallArgs, dshBinPath, dshEntryJsPath, findGlobalDsh } from './install/dshPackage.js';
 import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
@@ -64,12 +64,19 @@ import {
 import { aggregateSessionUsage } from './usage/sessionUsage.js';
 import {
   buildDesktopPatchYaml,
-  externalAgentsPath,
+  cordisPatchPath,
+  desktopDshHome,
   globalAgentsPath,
   normalizePromptConfig,
 } from './prompt/promptSettings.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** 壳安装目录（exe 所在目录）；dsh-home 落这里，实现「壳 exe + dsh + 数据三样同目录」。
+ * 打包版 = exe 目录；开发版（未打包）= 项目源码根（app.getAppPath），避免写进 electron dist 目录 */
+function shellInstallDir(): string {
+  return app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath();
+}
 
 // [兼容] Chromium 沙箱在部分磁盘的 ACL 环境（如用户的 E 盘）会初始化失败，应用一启动就闪退（退出码 -36861）。
 // 禁用沙箱以彻底兼容任意安装路径（实测：同一 exe 在 C 盘正常、E 盘崩；加 --no-sandbox 后 E 盘正常）。
@@ -77,7 +84,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 app.commandLine.appendSwitch('no-sandbox');
 
 // ---------------------------------------------------------------------------
-// 常量（架构文档 §4：稳定边界；§8.7：桌面基线经 --patch 传入）
+// 常量（架构文档 §4：稳定边界；persona/身份经 home patch $DSH_HOME/cordis.patch.yml 热重载注入）
 // ---------------------------------------------------------------------------
 const GUIDE_PAGE = join(__dirname, 'pages', 'guide.html');
 const PORT_PROMPT_PAGE = join(__dirname, 'pages', 'port-prompt.html');
@@ -88,7 +95,6 @@ const PROMPT_SETTINGS_PAGE = join(__dirname, 'pages', 'prompt-settings.html');
 const NOTIFICATIONS_PAGE = join(__dirname, 'pages', 'notifications.html');
 const USAGE_PAGE = join(__dirname, 'pages', 'usage.html');
 const PRELOAD = join(__dirname, 'bridge', 'preload.cjs');
-const DEFAULT_PATCH = join(__dirname, '..', '..', 'assets', 'desktop.patch.yml');
 const ICON = join(__dirname, '..', '..', 'assets', 'icon.png');
 /** 白鲸（深色主题用白鲸、浅色用黑鲸；用户拍板） */
 const ICON_WHITE = join(__dirname, '..', '..', 'assets', 'icon-white.png');
@@ -104,7 +110,6 @@ let mainWindow: BrowserWindow | null = null;
 /** 应用显示名（窗口标题/托盘/通知；与 package.json productName 一致，[D91] 命名 deepseek-harness-starter） */
 const APP_NAME = 'deepseek-harness-starter';
 let serviceProcess: ReturnType<typeof spawn> | null = null;
-let reuseMode = false;
 /** 用户是否正在退出（服务自愈时避免退出过程中重启） */
 let quitting = false;
 /** 服务死亡自愈重试次数（指数退避，就绪后清零） */
@@ -347,11 +352,6 @@ function probePort(port: number): Promise<'dsh' | 'occupied' | 'free'> {
 }
 
 async function stopService(): Promise<void> {
-  if (reuseMode) {
-    // 复用外部服务：不杀别人的进程（[FR-7.1] 并存），只提示
-    new Notification({ title: APP_NAME, body: '服务由外部启动，请在原处停止。' }).show();
-    return;
-  }
   if (!serviceProcess || serviceProcess.killed) return;
   // 确认对话框（架构文档 §5.3 分档文案，[D72]）：硬停可能损坏正在写入的工作区文件
   const options = {
@@ -378,7 +378,7 @@ async function stopService(): Promise<void> {
 
 function updateTrayState(): void {
   if (tray) {
-    const running = reuseMode || serviceProcess !== null;
+    const running = serviceProcess !== null;
     tray.setToolTip(running ? `${APP_NAME} — 服务运行中` : `${APP_NAME} — 服务已停止`);
   }
 }
@@ -454,7 +454,7 @@ function subscribeEvents(port: number): void {
     stallTrackersGlobal.clear();
     // 断开 → 2s 后自动重连（浏览器同款指数退避的简化，[FR-25.5]）
     setTimeout(() => {
-      if (reuseMode || serviceProcess) subscribeEvents(port);
+      if (serviceProcess) subscribeEvents(port);
     }, 2000);
   });
 
@@ -602,59 +602,85 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // 服务生命周期归壳（[D90]）：优先用"选择已有 DSH 目录"落盘的 checkout；其次 DSH_CHECKOUT 环境变量
   const dshCwd = config.dshCheckout ?? process.env.DSH_CHECKOUT ?? '';
   const installedBin = config.installDir !== undefined ? dshBinPath(config.installDir) : null;
+  // 检测本机已装 dsh：checkout 目录 / 当前目录 package.json / 安装目录 dsh / PATH 里的全局 dsh
+  const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
   const dshDetected =
     dshCwd !== '' ||
     existsSync(join(process.cwd(), 'package.json')) ||
-    (installedBin !== null && existsSync(installedBin));
+    (installedBin !== null && existsSync(installedBin)) ||
+    globalDsh;
+
+  // managed 模式：检测到本机已装 dsh（且未下载过、未问过）→ 弹窗问用户用已装的还是重新下载
+  if (dshDetected && config.installDir === undefined && config.dshChoice === undefined) {
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: '检测到已安装的 DeepSeek Harness',
+      message: '检测到你电脑上已经装了 DeepSeek Harness。',
+      detail: '可以继续用它，也可以重新下载一份到本应用目录。',
+      buttons: ['用它', '重新下载'],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    const store2 = getStore();
+    const config2 = store2.load();
+    if (response === 0) {
+      config2.dshChoice = 'existing';
+      store2.save(config2);
+      writeLog('shell', 'user chose to reuse existing dsh');
+    } else {
+      config2.dshChoice = 'download';
+      store2.save(config2);
+      writeLog('shell', 'user chose to download a fresh dsh');
+      return loadInstallWizard(win);
+    }
+  }
 
   emitServiceStatus(win, 'probing', '正在检查服务…');
-  const port = config.port ?? 3080;
+  let port = config.port ?? 3080;
   const probe = await probePort(port);
-  const decision = decidePort(probe, { remembered: config.port });
+  let decision = decidePort(probe, { remembered: config.port });
+  // managed 模式：端口上是别人的 dsh → 自动换空闲端口（不弹窗），逐个探测候选直到找到空闲
+  if (decision.action === 'next-free') {
+    const candidates = decision.candidatePorts;
+    let found = false;
+    for (const candidate of candidates) {
+      if ((await probePort(candidate)) === 'free') {
+        port = candidate;
+        decision = { action: 'spawn', port };
+        found = true;
+        break;
+      }
+    }
+    // 候选全部被占（罕见：多个 dsh / 连续端口被占）→ 回落到询问弹窗，不能静默 spawn 到仍被占的端口
+    if (!found) decision = { action: 'ask', candidatePorts: candidates };
+  }
   writeLog('shell', `start: node=${process.versions.node} nodeOk=${nodeOk} port=${port} probe=${probe} action=${decision.action}`);
 
-  // 启动门禁（startup.ts，测试锁定）：复用外部服务优先于本地检测——
-  // 打包版无 DSH_CHECKOUT 环境变量时，只要端口上是 dsh 服务就直接复用
+  // 启动门禁（startup.ts，测试锁定）：managed 模式统一过环境门禁，不再复用外部服务
   const gate = decideStartup(decision, { nodeOk, dshDetected });
   switch (gate.kind) {
     case 'guide':
-      emitServiceStatus(win, 'failed', gate.guidance === 'node-missing' ? '缺少可用的 Node.js' : '未检测到 DeepSeek Harness');
+      if (gate.guidance === 'dsh-missing') {
+        // 未检测到 DSH → 进安装向导（ask 步骤含"下载安装 + 需要联网"告知，用户点开始才下载）
+        emitServiceStatus(win, 'stopped', '未检测到 DeepSeek Harness，需要先安装');
+        return loadInstallWizard(win);
+      }
+      emitServiceStatus(win, 'failed', '缺少可用的 Node.js');
       return loadGuide(win, gate.guidance);
     case 'ask':
       emitServiceStatus(win, 'stopped', `端口 ${port} 被其他程序占用`);
       return loadPortPrompt(
         win,
         port,
-        decision.action === 'ask' ? decision.candidatePorts : nextFreeCandidates(port),
+        decision.action === 'ask' ? decision.candidatePorts : [port + 1, port + 2, port + 3],
       );
-    case 'reuse': {
-      reuseMode = true;
-      writeLog('shell', `reuse service on port ${port}`);
-      if (config.onboardingDone) {
-        await loadUrl(win, `http://127.0.0.1:${port}`);
-      } else {
-        await loadOnboarding(win);
-      }
-      emitServiceStatus(win, 'running', `已连接本机服务（端口 ${port}）`);
-      subscribeEvents(port);
-      // 主题单一事实源 = DSH 官方"外观"设置：启动时读取并采用，壳（窗口底色/图标/本地页）跟随
-      adoptThemeFromDsh(port);
-      updateTrayState();
-      return;
-    }
     case 'spawn':
       break;
   }
 
-  // spawn（桌面基线经 --patch 传入，§8.7；向导装出的实例用独立 DSH_HOME，[FR-22.4]）
+  // spawn（managed 模式：persona 经 home patch `$DSH_HOME/cordis.patch.yml` 注入，热重载即生效，
+  // 无需 --patch；$DSH_HOME 统一指向壳自己的 dsh-home，保证提示词/persona 一定被服务读到）
   emitServiceStatus(win, 'starting', '正在启动服务…');
-  // 用户改过提示词设置 → 用 userData/desktop.patch.yml；否则用打包基线 assets/desktop.patch.yml
-  const userPatch = userPatchFile();
-  const patchFile = existsSync(userPatch)
-    ? userPatch
-    : existsSync(DEFAULT_PATCH)
-      ? DEFAULT_PATCH
-      : undefined;
   const usingInstalled =
     process.env.DSH_COMMAND === undefined && installedBin !== null && existsSync(installedBin);
   let spec: SpawnSpec;
@@ -668,7 +694,6 @@ async function startShell(win: BrowserWindow): Promise<void> {
       nodeExe: runtime.nodeExe,
       dshEntry: dshEntryJsPath(config.installDir),
       port,
-      patchFile,
     });
   } else if (config.dshCheckout && existsSync(join(config.dshCheckout, 'apps', 'cli', 'src', 'bin.ts'))) {
     // checkout（[D90] 用户"选择已有 DSH 目录"）：直跑 node --import tsx/esm apps/cli/src/bin.ts，
@@ -677,7 +702,6 @@ async function startShell(win: BrowserWindow): Promise<void> {
   } else {
     spec = buildSpawnSpec({
       port,
-      patchFile,
       command: process.env.DSH_COMMAND,
     });
   }
@@ -685,7 +709,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
     cwd: dshCwd || process.cwd(),
     env: buildSpawnEnv({
       base: process.env,
-      dshHome: usingInstalled ? join(app.getPath('userData'), 'dsh-home') : undefined,
+      // managed 统一 DSH_HOME = 壳安装目录下的 dsh-home（壳 exe + dsh + 数据三样同目录），即改即用、不依赖外部 ~/.dsh
+      dshHome: desktopDshHome(shellInstallDir()),
     }),
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: process.platform === 'win32',
@@ -976,17 +1001,11 @@ function loadMain(win: BrowserWindow): Promise<void> {
   return loadOnboarding(win);
 }
 
-/** 用户级 --patch overlay（[FR-16]：身份/persona 设置落这里；无则用打包默认基线） */
-function userPatchFile(): string {
-  return join(app.getPath('userData'), 'desktop.patch.yml');
-}
-
 /**
- * 重启壳拉起的服务以应用新 --patch（[FR-16] 保存并重启）。
- * 复用外部服务时不接管；等退出事件或超时后重跑启动序列（端口探测复用同一路径）。
+ * 重启壳拉起的服务以应用新 patch（[FR-16] 保存并重启）。
+ * managed 模式：壳自己拉起，随时可重启；等退出事件或超时后重跑启动序列（端口探测复用同一路径）。
  */
 async function restartService(win: BrowserWindow): Promise<void> {
-  if (reuseMode) return;
   const child = serviceProcess;
   serviceProcess = null;
   if (child && !child.killed) {
@@ -1136,8 +1155,8 @@ const shellOps: ShellOps = {
   },
   pickDir: async () => {
     const win = mainWindow ?? createWindow();
-    // 默认目录先建好并作为选择器初始位置：交付页"用默认目录就好"的承诺成立
-    const defaultDir = defaultInstallDir(process.platform, process.env, app.getPath('home'));
+    // 默认目录 = 壳安装目录下的 dsh（壳 exe + dsh + 数据三样同目录）；先建好并作为选择器初始位置
+    const defaultDir = join(shellInstallDir(), 'dsh');
     try {
       mkdirSync(defaultDir, { recursive: true });
     } catch {
@@ -1188,27 +1207,7 @@ const shellOps: ShellOps = {
     const notifyResult = config.notifications?.result ?? true;
     const uiTheme = currentUiTheme();
     const uiThemeResolved = resolveUiTheme();
-    if (reuseMode) {
-      // 复用外部服务：全局指令可编辑（落到外部服务真实读的 AGENTS.md）；身份/persona 需重启生效
-      const agentsPath = externalAgentsPath(config.dshHome);
-      let globalPrompt = '';
-      try {
-        globalPrompt = readFileSync(agentsPath, 'utf8');
-      } catch {
-        // 文件不存在 = 尚无全局指令
-      }
-      return {
-        mode: 'reuse',
-        includeHarnessIdentity: prompt.includeHarnessIdentity,
-        persona: prompt.persona,
-        globalPrompt,
-        globalPromptPath: agentsPath,
-        notifyResult,
-        uiTheme,
-        uiThemeResolved,
-      };
-    }
-    const path = globalAgentsPath(app.getPath('userData'));
+    const path = globalAgentsPath(shellInstallDir());
     let globalPrompt = '';
     try {
       globalPrompt = readFileSync(path, 'utf8');
@@ -1246,42 +1245,19 @@ const shellOps: ShellOps = {
       applyDesktopTheme();
       writeLog('shell', `ui theme set to ${input.uiTheme} (resolved ${resolveUiTheme()})`);
     }
-    if (reuseMode) {
-      // 复用外部服务：全局指令可写（落到外部服务真实读的 AGENTS.md，新会话即生效）；
-      // 身份/persona 存进壳配置（当前外部服务用不上，重启/切壳管后生效）
-      const store = getStore();
-      const config = store.load();
-      try {
-        const agentsPath = externalAgentsPath(config.dshHome);
-        mkdirSync(dirname(agentsPath), { recursive: true });
-        writeFileSync(agentsPath, input.globalPrompt, 'utf8');
-        config.prompt = { includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona };
-        store.save(config);
-        writeLog('shell', `prompt settings saved (reuse) global=${agentsPath}`);
-      } catch (error) {
-        return { ok: false, restarting: false, message: `写入失败：${String(error)}` };
-      }
-      return {
-        ok: true,
-        restarting: false,
-        message: '已保存。全局指令新会话即生效；身份 / Persona 改动需重启服务后生效。',
-      };
-    }
-    let personaChanged = false;
     try {
       const store = getStore();
       const config = store.load();
-      const oldPrompt = normalizePromptConfig(config.prompt);
-      personaChanged =
-        oldPrompt.includeHarnessIdentity !== input.includeHarnessIdentity ||
-        oldPrompt.persona !== input.persona;
       config.prompt = { includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona };
       store.save(config);
-      const agentsPath = globalAgentsPath(app.getPath('userData'));
+      const agentsPath = globalAgentsPath(shellInstallDir());
       mkdirSync(dirname(agentsPath), { recursive: true });
       writeFileSync(agentsPath, input.globalPrompt, 'utf8');
+      // persona 落点 = home patch（$DSH_HOME/cordis.patch.yml）：dsh watchUserPatches 热重载，改完即生效
+      const patchPath = cordisPatchPath(shellInstallDir());
+      mkdirSync(dirname(patchPath), { recursive: true });
       writeFileSync(
-        userPatchFile(),
+        patchPath,
         buildDesktopPatchYaml({ includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona }),
         'utf8',
       );
@@ -1293,8 +1269,9 @@ const shellOps: ShellOps = {
     } catch (error) {
       return { ok: false, restarting: false, message: `写入失败：${String(error)}` };
     }
-    // 身份/persona 是启动时 patch 注入、运行中改不了（DSH 无运行时 API）→ 改了必须重启生效（会话自动接回）
-    if (personaChanged || input.restart) {
+    // persona 写 home patch（cordis.patch.yml）热重载，改完即生效、无需重启；
+    // 只有用户显式点「重启并加载」按钮（input.restart）才重启服务
+    if (input.restart) {
       const win = mainWindow;
       void restartService(win ?? createWindow());
       return { ok: true, restarting: true, message: '已保存，正在重启服务（会话自动接回）…' };
@@ -1302,7 +1279,7 @@ const shellOps: ShellOps = {
     return {
       ok: true,
       restarting: false,
-      message: '已保存。全局指令新会话即生效。',
+      message: '已保存，立即生效。',
     };
   },
   readNotifications: () => readNotificationHistory(app.getPath('userData'), 500),

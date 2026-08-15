@@ -6,18 +6,7 @@ describe('buildCommandArgs（启动命令 = 稳定边界 §4.1）', () => {
     expect(buildCommandArgs({ port: 3080 })).toEqual(['dsh', 'web', '--port', '3080']);
   });
 
-  it('passes the desktop patch baseline via --patch when provided (§8.7)', () => {
-    expect(buildCommandArgs({ port: 3080, patchFile: 'C:/x/desktop.patch.yml' })).toEqual([
-      'dsh',
-      'web',
-      '--port',
-      '3080',
-      '--patch',
-      'C:/x/desktop.patch.yml',
-    ]);
-  });
-
-  it('omits --patch when no baseline configured', () => {
+  it('no --patch（persona 经 home patch cordis.patch.yml 热重载，不传启动参数）', () => {
     expect(buildCommandArgs({ port: 5000 })).toEqual(['dsh', 'web', '--port', '5000']);
   });
 });
@@ -34,13 +23,6 @@ describe('buildSpawnSpec', () => {
     expect(buildSpawnSpec({ port: 3080, command: 'dsh' })).toEqual({
       command: 'dsh',
       args: ['web', '--port', '3080'],
-    });
-  });
-
-  it('keeps --patch at the tail', () => {
-    expect(buildSpawnSpec({ port: 3080, patchFile: 'P.yml', command: 'dsh' })).toEqual({
-      command: 'dsh',
-      args: ['web', '--port', '3080', '--patch', 'P.yml'],
     });
   });
 });
@@ -63,20 +45,6 @@ describe('buildNodeSpawnSpec（自备 Node 直跑 DSH CLI）', () => {
     ).toEqual({
       command: 'C:/rt/node/node.exe',
       args: ['C:/d/dsh/lib/bin.js', 'web', '--port', '3080'],
-    });
-  });
-
-  it('追加 --patch 桌面基线', () => {
-    expect(
-      buildNodeSpawnSpec({
-        nodeExe: 'C:/rt/node/node.exe',
-        dshEntry: 'C:/d/dsh/lib/bin.js',
-        port: 3080,
-        patchFile: 'C:/x/desktop.patch.yml',
-      }),
-    ).toEqual({
-      command: 'C:/rt/node/node.exe',
-      args: ['C:/d/dsh/lib/bin.js', 'web', '--port', '3080', '--patch', 'C:/x/desktop.patch.yml'],
     });
   });
 });

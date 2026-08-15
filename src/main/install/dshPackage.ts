@@ -8,6 +8,30 @@ import { join, posix } from 'node:path';
 
 export const DSH_PACKAGE = '@deepseek-ai/dsh';
 
+/**
+ * 检测 PATH 里是否有全局 dsh 命令（managed 模式：优先复用本机已装 dsh，没有才下载）。
+ * - win32：找每个 PATH 目录下的 `dsh.cmd`（npm 全局安装的 dsh）
+ * - 其他平台：找每个 PATH 目录下的 `dsh`
+ * 纯函数：exists 判定注入，便于测试。
+ */
+export function findGlobalDsh(
+  platform: NodeJS.Platform,
+  pathEnv: string,
+  exists: (p: string) => boolean,
+): boolean {
+  const sep = platform === 'win32' ? ';' : ':';
+  const name = platform === 'win32' ? 'dsh.cmd' : 'dsh';
+  return pathEnv.split(sep).some((dir) => {
+    const trimmed = dir.trim();
+    if (trimmed === '') return false;
+    try {
+      return exists(platform === 'win32' ? join(trimmed, name) : posix.join(trimmed, name));
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** 安装用 npm 源（官方 npmjs 直连常被墙，默认走 npmmirror 镜像） */
 export const DSH_NPM_REGISTRY = 'https://registry.npmmirror.com';
 
@@ -32,22 +56,4 @@ export function dshEntryJsPath(prefix: string, platform: NodeJS.Platform = proce
   return platform === 'win32'
     ? join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
     : posix.join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
-}
-
-/**
- * 安装向导默认目录（交付页 chooseDir 文案"用默认目录就好"的落地）：
- * win32 → %LOCALAPPDATA%\deepseekharness\dsh（per-user 本地应用区，不进漫游配置）；
- * 其他 → fallback/.dsh-desktop/dsh。fallback 由调用方给（通常是用户主目录）。
- */
-export function defaultInstallDir(
-  platform: NodeJS.Platform = process.platform,
-  env: NodeJS.ProcessEnv = process.env,
-  fallback: string,
-): string {
-  if (platform === 'win32') {
-    const local = env.LOCALAPPDATA;
-    if (local) return join(local, 'deepseekharness', 'dsh');
-    return join(fallback, 'dsh');
-  }
-  return posix.join(fallback, '.dsh-desktop', 'dsh');
 }
