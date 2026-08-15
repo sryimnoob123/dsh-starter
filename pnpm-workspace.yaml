@@ -1,2 +1,4 @@
-allowBuilds:
-  electron-winstaller: set this to true or false
+# pnpm v10+ 默认不跑依赖的安装/构建脚本；electron 的二进制下载（postinstall）必须放行，
+# 否则 `pnpm install` 后 `pnpm start` 会报 "Electron failed to install correctly"。
+onlyBuiltDependencies:
+  - electron

@@ -34,9 +34,9 @@ describe('normalizeWorkspaceRows（workspace.list 响应归一化）', () => {
     const raw = {
       items: [
         {
-          workspaceId: 'a56ee5ed-bb8c-49a9-8e73-133699c14e4d',
-          path: 'C:\\Users\\user\\Desktop\\dsp\\v2',
-          title: 'v2',
+          workspaceId: '11111111-1111-4111-8111-111111111111',
+          path: 'C:\\Users\\demo\\workspaces\\harness',
+          title: 'harness',
           sessionIds: [],
           createdAt: '2026-08-14T09:34:09.973Z',
         },
@@ -47,7 +47,7 @@ describe('normalizeWorkspaceRows（workspace.list 响应归一化）', () => {
       archivedSessionIds: ['session-x'],
     };
     expect(normalizeWorkspaceRows(raw)).toEqual([
-      { workspaceId: 'a56ee5ed-bb8c-49a9-8e73-133699c14e4d', title: 'v2', path: 'C:\\Users\\user\\Desktop\\dsp\\v2' },
+      { workspaceId: '11111111-1111-4111-8111-111111111111', title: 'harness', path: 'C:\\Users\\demo\\workspaces\\harness' },
       { workspaceId: 'w-keep', title: 't', path: 'C:\\proj\\keep' },
     ]);
   });

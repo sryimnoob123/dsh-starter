@@ -79,7 +79,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
 
   var style = document.createElement('style');
   style.textContent =
-    '#dsh-gp-section{color:var(--dsw-alias-label-primary,#e8e6dd);padding:16px 2px;font-size:14px;line-height:1.5;}' +
+    '#dsh-gp-section{color:var(--dsw-alias-label-primary,#e8e6dd);flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:0 24px 24px;box-sizing:border-box;font-size:14px;line-height:1.5;}' +
     '#dsh-gp-section h2{margin:0 0 4px;font-size:15px;font-weight:600;}' +
     '#dsh-gp-section h3{margin:20px 0 4px;font-size:14px;font-weight:500;}' +
     '#dsh-gp-section h3 svg{vertical-align:-3px;margin-right:5px;color:var(--dsw-alias-label-secondary,#b6b4ab);}' +
@@ -281,7 +281,8 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     var navList = navBtn.parentElement;
     var nav = navList.parentElement;
     var panelRoot = nav.parentElement;
-    if (!panelRoot || document.getElementById('dsh-gp-nav')) return;
+    var content = nav.nextElementSibling;
+    if (!panelRoot || !content || document.getElementById('dsh-gp-nav')) return;
 
     // 克隆导航格（保 DSH 原生样式），去掉激活类，换我们的标题与图标
     var cell = navBtn.cloneNode(true);
@@ -303,17 +304,20 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     // 紧跟在"通用设置"之后（第二个位置），比排在最后更显眼
     navList.insertBefore(cell, navList.children[1] || null);
 
-    // 内容区 = nav 之后的兄弟（DSH sections 容器）；我们的面板挂到面板根下
-    var content = nav.nextElementSibling;
+    // 内容区 = nav 之后的兄弟（.content = .header 关闭钮 + .options 滚动区）。
+    // 面板挂进 .content（.options 之后）而非 .panel：.panel 是 overflow:hidden 定高，
+    // 挂那会被裁掉、无法上下滑动；挂 .content 内既保留关闭钮可见，又让面板作为
+    // flex 子项（flex:1 + overflow-y:auto）随 .content 列布局滚动。
+    var options = content.lastElementChild;
     var section = document.createElement('div');
     section.id = 'dsh-gp-section';
     section.style.display = 'none';
     section.innerHTML = sectionMarkup();
-    panelRoot.appendChild(section);
+    content.appendChild(section);
     wire();
 
     cell.addEventListener('click', function () {
-      if (content) content.style.display = 'none';
+      if (options) options.style.display = 'none';
       section.style.display = '';
       Array.prototype.forEach.call(navList.children, function (c) {
         c.className = c.className.split(/\\s+/).filter(function (x) { return !/active/i.test(x); }).join(' ');
@@ -323,7 +327,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     Array.prototype.forEach.call(navList.children, function (c) {
       if (c === cell) return;
       c.addEventListener('click', function () {
-        if (content) content.style.display = '';
+        if (options) options.style.display = '';
         section.style.display = 'none';
       });
     });

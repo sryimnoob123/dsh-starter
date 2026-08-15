@@ -11,7 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SVG_SOURCE = process.env.DSH_FAVICON_SVG ?? 'E:/TOOLS/deepseek-harness/apps/web/public/favicon.svg';
+// 来源 = DeepSeek Harness 的 apps/web/public/favicon.svg（官方 logo 几何）。
+// 不硬编码任何本机路径：由 DSH_FAVICON_SVG 显式指定，避免把个人 checkout 路径带进开源仓库。
+const SVG_SOURCE = process.env.DSH_FAVICON_SVG;
+if (!SVG_SOURCE) {
+  throw new Error('DSH_FAVICON_SVG 未设置：请指向 DeepSeek Harness 的 apps/web/public/favicon.svg');
+}
 const WHITE = process.env.WHITE === '1';
 const OUT = join(__dirname, '..', 'assets', WHITE ? 'icon-white.png' : 'icon.png');
 const SIZE = 512;
