@@ -1107,7 +1107,7 @@ async function restartService(win: BrowserWindow): Promise<void> {
 // ---------------------------------------------------------------------------
 let installRunning = false;
 
-/** npm install --prefix <目录> @deepseek-ai/dsh；stdout 尾巴推给页面当进度文案 */
+/** npm install --prefix <目录> @deepseek-ai/dsh；stdout 尾巴推给页面当进度文案 + 渐进式进度条 */
 function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string): Promise<number | null> {
   return new Promise((resolve) => {
     const child = spawn(npmCmd, buildNpmInstallArgs(dir), {
@@ -1115,19 +1115,33 @@ function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string): Promise
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let lastLine = '';
+    // npm 不提供精确总进度，用「渐进逼近 90%」的时间驱动进度条：开始涨得快、越往后越慢，
+    // 无论下载多久进度条都在动且不会卡在 100%；真正完成时由 runInstallFlow 推 done=100%。
+    let progress = 0;
+    const timer = setInterval(() => {
+      progress += (90 - progress) * 0.06;
+      sendProgress(win, {
+        phase: 'install',
+        percent: Math.round(progress),
+        detail: lastLine !== '' ? `npm：${lastLine}` : '正在下载并安装 DeepSeek Harness…',
+      });
+    }, 400);
     child.stdout?.on('data', (chunk: Buffer) => {
       const lines = chunk.toString().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       if (lines.length > 0) {
         lastLine = lines[lines.length - 1] ?? '';
-        sendProgress(win, { phase: 'install', percent: -1, detail: `npm：${lastLine}` });
       }
     });
     child.stderr?.on('data', (chunk: Buffer) => writeLog('shell', `npm: ${chunk.toString()}`));
     child.on('error', (error) => {
       writeLog('shell', `npm spawn failed: ${String(error)}`);
+      clearInterval(timer);
       resolve(null);
     });
-    child.on('exit', (code) => resolve(code));
+    child.on('exit', (code) => {
+      clearInterval(timer);
+      resolve(code);
+    });
   });
 }
 

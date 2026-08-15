@@ -215,7 +215,7 @@
         detect: 'search', ask: 'download', download: 'download', chooseDir: 'folder',
         install: 'box', configure: 'sliders', launch: 'launch', done: 'check', error: 'bolt',
       };
-      const SPINNER_STEPS = ['detect', 'install', 'configure', 'launch'];
+      const SPINNER_STEPS = ['detect', 'configure', 'launch'];
 
       const shell = window.dshShell || null;
       const el = {
@@ -296,7 +296,7 @@
         } else if (step === 'ask') {
           addButton(t.start, 'btn', (b) => callShell(() => shell.startInstall(), b));
           addButton(t.later, 'btn btn--ghost', (b) => callShell(() => shell.quit(), b));
-        } else if (step === 'download') {
+        } else if (step === 'download' || step === 'install') {
           progressWrap = document.createElement('div');
           progressWrap.className = 'progress';
           progressWrap.setAttribute('role', 'progressbar');
@@ -341,11 +341,11 @@
         shell.onProgress((event) => {
           if (!event || typeof event !== 'object') return;
           const phase = event.phase;
-          if (phase === 'download') {
-            if (!progressWrap) renderStep('download');
+          if (phase === 'download' || phase === 'install') {
+            if (!progressWrap) renderStep(phase === 'install' ? 'install' : 'download');
             setProgress(typeof event.percent === 'number' ? event.percent : -1);
             if (event.detail) el.status.textContent = event.detail;
-          } else if (['install', 'configure', 'launch', 'done', 'error'].includes(phase)) {
+          } else if (['configure', 'launch', 'done', 'error'].includes(phase)) {
             renderStep(phase, typeof event.detail === 'string' ? event.detail : '');
           }
         });
