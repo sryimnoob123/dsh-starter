@@ -42,17 +42,6 @@ export function buildNodeSpawnSpec(options: {
   return { command: options.nodeExe, args: [options.dshEntry, 'web', '--port', String(options.port)] };
 }
 
-/**
- * DSH checkout 直跑（[D90] 用户"选择已有 DSH 目录"）：`node --import tsx/esm apps/cli/src/bin.ts web --port <n>`，
- * 与用户 start.bat 完全一致（不走 pnpm，避免 pnpm 依赖/慢启动）。
- */
-export function buildCheckoutSpawnSpec(options: { port: number }): SpawnSpec {
-  return {
-    command: 'node',
-    args: ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', String(options.port)],
-  };
-}
-
 export function buildSpawnEnv(
   options: { dshHome?: string; base?: NodeJS.ProcessEnv },
 ): NodeJS.ProcessEnv {

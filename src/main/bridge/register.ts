@@ -37,8 +37,6 @@ export interface ShellOps {
   readLog(kind: 'shell' | 'service'): string;
   /** 打开安装向导页（guide 页 dsh-missing 的"安装 DSH"按钮） */
   goInstall(): void;
-  /** 选择已有 DSH 目录并保存（guide 页 dsh-missing 的备选路径，[D90] 服务生命周期归壳） */
-  selectDshDirectory(): Promise<void>;
   /** 打开设置页（标题栏齿轮入口） */
   openPromptSettings(): void;
   /** 返回对话主界面（设置/通知/日志页的"返回对话"） */
@@ -89,8 +87,6 @@ export function registerBridge(ops: ShellOps): void {
   });
 
   ipcMain.handle(BRIDGE_API.goInstall, () => ops.goInstall());
-
-  ipcMain.handle(BRIDGE_API.selectDshDirectory, () => ops.selectDshDirectory());
 
   ipcMain.handle(BRIDGE_API.openPromptSettings, () => ops.openPromptSettings());
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, screen, shell, Tray } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import { ConfigStore } from './config/store.js';
 import { classifyProbe, parseReadyUrlLine } from './service/detect.js';
 import { decidePort } from './service/port.js';
 import { decideStartup } from './service/startup.js';
-import { buildCheckoutSpawnSpec, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
+import { buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
 import { isNodeOk } from './service/nodeCheck.js';
 import { Registry } from './extensions/registry.js';
 import { classifyEvent, type MuxFrame } from './notify/classify.js';
@@ -110,6 +110,9 @@ let mainWindow: BrowserWindow | null = null;
 /** 应用显示名（窗口标题/托盘/通知；与 package.json productName 一致，[D91] 命名 deepseek-harness-starter） */
 const APP_NAME = 'deepseek-harness-starter';
 let serviceProcess: ReturnType<typeof spawn> | null = null;
+/** 无边框窗口 JS 拖拽状态（[D84]：drag-start 记录起点，定时器跟随鼠标移动窗口） */
+let dragState: { winX: number; winY: number; mouseX: number; mouseY: number } | null = null;
+let dragTimer: NodeJS.Timeout | null = null;
 /** 用户是否正在退出（服务自愈时避免退出过程中重启） */
 let quitting = false;
 /** 服务死亡自愈重试次数（指数退避，就绪后清零） */
@@ -599,14 +602,11 @@ async function startShell(win: BrowserWindow): Promise<void> {
   const config = store.load();
 
   const nodeOk = isNodeOk(process.versions.node);
-  // 服务生命周期归壳（[D90]）：优先用"选择已有 DSH 目录"落盘的 checkout；其次 DSH_CHECKOUT 环境变量
-  const dshCwd = config.dshCheckout ?? process.env.DSH_CHECKOUT ?? '';
   const installedBin = config.installDir !== undefined ? dshBinPath(config.installDir) : null;
-  // 检测本机已装 dsh：checkout 目录 / 安装目录 dsh / PATH 里的全局 dsh。
+  // 检测本机已装 dsh：安装目录的 dsh（npm 安装版）/ PATH 里的全局 dsh。
   // 注意：不能看 process.cwd()/package.json——壳的 cwd 继承自启动它的进程，与 DSH 是否已装无关，会误判。
   const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
   const dshDetected =
-    dshCwd !== '' ||
     (installedBin !== null && existsSync(installedBin)) ||
     globalDsh;
 
@@ -681,11 +681,20 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // spawn（managed 模式：persona 经 home patch `$DSH_HOME/cordis.patch.yml` 注入，热重载即生效，
   // 无需 --patch；$DSH_HOME 统一指向壳自己的 dsh-home，保证提示词/persona 一定被服务读到）
   emitServiceStatus(win, 'starting', '正在启动服务…');
+  // 杀掉旧的壳服务进程（若有），避免服务堆积：端口切换/自愈/重启都只保留最新一个实例
+  if (serviceProcess && !serviceProcess.killed) {
+    try {
+      serviceProcess.kill();
+    } catch {
+      // 旧进程可能已退出
+    }
+    serviceProcess = null;
+  }
   const usingInstalled =
     process.env.DSH_COMMAND === undefined && installedBin !== null && existsSync(installedBin);
   let spec: SpawnSpec;
   if (usingInstalled && config.installDir !== undefined) {
-    // 打包版：自备/自下载 Node 直跑安装出的 DSH CLI（不依赖系统 node/npm）
+    // npm 安装版（快启动）：自备/自下载 Node 直跑编译好的 DSH CLI（不依赖系统 node/npm）
     const runtime = await ensureNodeRuntime({
       userData: app.getPath('userData'),
       onProgress: (detail) => emitServiceStatus(win, 'starting', detail),
@@ -695,18 +704,15 @@ async function startShell(win: BrowserWindow): Promise<void> {
       dshEntry: dshEntryJsPath(config.installDir),
       port,
     });
-  } else if (config.dshCheckout && existsSync(join(config.dshCheckout, 'apps', 'cli', 'src', 'bin.ts'))) {
-    // checkout（[D90] 用户"选择已有 DSH 目录"）：直跑 node --import tsx/esm apps/cli/src/bin.ts，
-    // 与用户 start.bat 完全一致（不走 pnpm，避免 pnpm 依赖/慢启动）
-    spec = buildCheckoutSpawnSpec({ port });
   } else {
+    // PATH 全局 dsh（若用户选了"用已装的"）：走系统 PATH 的 dsh 命令
     spec = buildSpawnSpec({
       port,
       command: process.env.DSH_COMMAND,
     });
   }
   const child = spawn(spec.command, spec.args, {
-    cwd: dshCwd || process.cwd(),
+    cwd: process.cwd(),
     env: buildSpawnEnv({
       base: process.env,
       // managed 统一 DSH_HOME = 壳安装目录下的 dsh-home（壳 exe + dsh + 数据三样同目录），即改即用、不依赖外部 ~/.dsh
@@ -746,7 +752,7 @@ async function startShell(win: BrowserWindow): Promise<void> {
     });
     setTimeout(() => {
       if (!ready) reject(new Error('readiness timeout'));
-      // 首次冷启动（checkout 直跑 + 首次建 dsh-home 要下载/链接 profiles 依赖）可能超过 30s，
+      // 首次启动（首次建 dsh-home 要下载/链接 profiles 依赖）可能超过 30s，
       // 放宽到 90s 防误判；服务就绪慢≠失败，reject 后服务进程仍在、下次探测会复用
     }, 90_000);
   });
@@ -1151,9 +1157,15 @@ const shellOps: ShellOps = {
     await startShell(win);
   },
   startInstall: async () => {
-    // ask 步"开始安装"→ 进入选目录步（页面显示 chooseDir，按钮调 pickDir）
+    // ask 步"开始安装"→ 直接下载到默认目录（安装目录/dsh，三样同目录），不再让用户选目录
     const win = mainWindow ?? createWindow();
-    await loadInstallWizard(win, 'chooseDir');
+    const defaultDir = join(shellInstallDir(), 'dsh');
+    try {
+      mkdirSync(defaultDir, { recursive: true });
+    } catch {
+      // 建不出默认目录不阻塞
+    }
+    void runInstallFlow(win, defaultDir);
   },
   pickDir: async () => {
     const win = mainWindow ?? createWindow();
@@ -1173,21 +1185,6 @@ const shellOps: ShellOps = {
     void runInstallFlow(win, filePaths[0] ?? '');
     return filePaths[0] ?? '';
   },
-  selectDshDirectory: async () => {
-    const win = mainWindow ?? createWindow();
-    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      title: '选择 DeepSeek Harness 目录（checkout / 克隆）',
-      properties: ['openDirectory'],
-    });
-    if (canceled || filePaths.length === 0) return;
-    const store = getStore();
-    const config = store.load();
-    config.dshCheckout = filePaths[0] ?? '';
-    store.save(config);
-    writeLog('shell', `dshCheckout set to ${filePaths[0] ?? ''}`);
-    // 重新走启动序列：dshCheckout 使 dshDetected=true → probe=free 走 spawn 自动拉起
-    await startShell(win);
-  },
   testConnection: (config) => testConnection(config),
   discoverModels: (input) => discoverModels(input),
   windowControl: (action) => {
@@ -1196,6 +1193,29 @@ const shellOps: ShellOps = {
     if (action === 'minimize') win.minimize();
     else if (action === 'toggle-maximize') (win.isMaximized() ? win.unmaximize() : win.maximize());
     else if (action === 'close') win.close(); // close 事件 → 缩托盘（[FR-3.1]）
+    else if (action === 'drag-start') {
+      // 无边框窗口 JS 拖拽（[D84]）：记录窗口当前位置与鼠标屏幕位置，开始跟随
+      const [wx, wy] = win.getPosition();
+      const cursor = screen.getCursorScreenPoint();
+      dragState = { winX: wx, winY: wy, mouseX: cursor.x, mouseY: cursor.y };
+      // 启动跟随定时器（16ms ≈ 60fps）：窗口位置 = 起点 + 鼠标相对起点的位移
+      if (dragTimer) clearInterval(dragTimer);
+      dragTimer = setInterval(() => {
+        const w = mainWindow;
+        if (!w || w.isDestroyed() || !dragState) return;
+        if (w.isMaximized()) return; // 最大化时不拖
+        const cur = screen.getCursorScreenPoint();
+        const nx = dragState.winX + (cur.x - dragState.mouseX);
+        const ny = dragState.winY + (cur.y - dragState.mouseY);
+        w.setPosition(nx, ny);
+      }, 16);
+    } else if (action === 'drag-end') {
+      dragState = null;
+      if (dragTimer) {
+        clearInterval(dragTimer);
+        dragTimer = null;
+      }
+    }
   },
   saveConnection: async (cfg) => {
     const port = getStore().load().port ?? 3080;
@@ -1402,7 +1422,19 @@ process.on('unhandledRejection', (reason) => {
   } catch { /* 忽略 */ }
 });
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => {
+  quitting = true;
+  // 壳退出时杀掉自己拉起的服务子进程，避免孤儿进程堆积（否则下次启动又起新实例、端口一路涨）
+  const child = serviceProcess;
+  if (child && !child.killed) {
+    try {
+      child.kill();
+    } catch {
+      // 服务进程可能已退出，忽略
+    }
+    serviceProcess = null;
+  }
+});
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

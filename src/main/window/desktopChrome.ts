@@ -46,45 +46,81 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
 })();`;
 
 /**
- * DSH 页面拖拽区（无标题栏后）：应用自身顶部 header = 拖拽区，
- * header 内交互元素 no-drag；右侧留 140px 给悬浮按钮。MutationObserver 兜底 SPA 视图切换。
+ * DSH 页面拖拽区（无标题栏后）：JS 拖拽，不碰页面布局。
+ * 旧方案 querySelector('header') + -webkit-app-region:drag 在 DSH 升级为三栏 AppFrame 后失效
+ * （主界面无应用级 header）；padding-top 下移内容又会撑出滚动条。
+ * 现改为：在窗口顶部 28px 区域按住鼠标 → 通过 dshShell.windowControl 通知主进程跟随移动窗口，
+ * 完全不改变 DSH 页面布局（无滚动条、无遮挡）。
  */
 export const DSH_HEADER_DRAG_SCRIPT = `(function () {
-  var timer = null;
-  function apply() {
-    var h = document.querySelector('header');
-    if (!h) return;
-    if (h.dataset.dshDrag !== '1') {
-      h.dataset.dshDrag = '1';
-      h.style.setProperty('-webkit-app-region', 'drag');
-      var pr = parseInt(h.style.paddingRight || window.getComputedStyle(h).paddingRight, 10) || 0;
-      h.style.setProperty('padding-right', Math.max(pr, 140) + 'px');
+  var DRAG_ZONE = 28;
+  var dragging = false;
+  function inZone(e) {
+    return e.clientY >= 0 && e.clientY <= DRAG_ZONE;
+  }
+  document.addEventListener('mousedown', function (e) {
+    // 只有鼠标左键 + 顶部 28px 空白区 + 不落在按钮/链接/输入等交互元素上，才进入拖拽
+    if (e.button !== 0) return;
+    if (!inZone(e)) return;
+    var t = e.target;
+    if (t && t.closest && t.closest('button,a,input,select,textarea,[role=button],[role=tab],[contenteditable="true"]')) return;
+    var w = window.dshShell;
+    if (!w || typeof w.windowControl !== 'function') return;
+    dragging = true;
+    try { w.windowControl('drag-start'); } catch (err) { dragging = false; }
+  });
+  document.addEventListener('mouseup', function () {
+    if (!dragging) return;
+    dragging = false;
+    var w = window.dshShell;
+    if (w && typeof w.windowControl === 'function') {
+      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
     }
-    // 每次重渲染都补一遍 no-drag（header 内交互元素会被 DSH 重渲染替换）：
-    // 含 role=tab/role=tablist——不列出的话对话/轨迹标签会被拖拽区吞掉点击
-    h.querySelectorAll(
-      'button,a,input,select,textarea,[role=button],[role=tab],[role=tablist],[contenteditable="true"]',
-    ).forEach(function (el) {
-      el.style.setProperty('-webkit-app-region', 'no-drag');
-    });
-  }
-  function schedule() {
-    // 防抖：活跃会话事件流高频重渲染，全量查询每帧跑太费——合并到 120ms 一批
-    if (timer) return;
-    timer = setTimeout(function () { timer = null; apply(); }, 120);
-  }
-  schedule();
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  });
+  // 失焦/离开窗口时兜底结束拖拽，避免窗口"粘住"鼠标
+  window.addEventListener('blur', function () {
+    if (!dragging) return;
+    dragging = false;
+    var w = window.dshShell;
+    if (w && typeof w.windowControl === 'function') {
+      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
+    }
+  });
 })();`;
 
-/** 壳本地页（file://）顶部透明拖拽条（右上角让出悬浮按钮） */
+/** 壳本地页（file://）顶部拖拽：与 DSH 页面同款 JS 拖拽（不碰布局，右上角让出悬浮按钮） */
 export const PAGE_DRAG_SCRIPT = `(function () {
-  if (document.getElementById('dsh-page-drag')) return;
-  var s = document.createElement('div');
-  s.id = 'dsh-page-drag';
-  s.style.cssText =
-    'position:fixed;top:0;left:0;right:160px;height:28px;z-index:2147483646;-webkit-app-region:drag;';
-  document.documentElement.appendChild(s);
+  var DRAG_ZONE = 28;
+  var dragging = false;
+  function inZone(e) {
+    return e.clientY >= 0 && e.clientY <= DRAG_ZONE;
+  }
+  document.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    if (!inZone(e)) return;
+    var t = e.target;
+    if (t && t.closest && t.closest('button,a,input,select,textarea,[role=button],[contenteditable="true"]')) return;
+    var w = window.dshShell;
+    if (!w || typeof w.windowControl !== 'function') return;
+    dragging = true;
+    try { w.windowControl('drag-start'); } catch (err) { dragging = false; }
+  });
+  document.addEventListener('mouseup', function () {
+    if (!dragging) return;
+    dragging = false;
+    var w = window.dshShell;
+    if (w && typeof w.windowControl === 'function') {
+      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
+    }
+  });
+  window.addEventListener('blur', function () {
+    if (!dragging) return;
+    dragging = false;
+    var w = window.dshShell;
+    if (w && typeof w.windowControl === 'function') {
+      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
+    }
+  });
 })();`;
 
 /**

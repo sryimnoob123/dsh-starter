@@ -50,10 +50,15 @@ describe('desktopChrome 注入脚本（整窗外观，[D83]/[D84]/[D85]）', () 
     expect(FLOATING_CONTROLS_SCRIPT).not.toContain('open-settings');
   });
 
-  it('拖拽区脚本：header 拖拽 + 交互元素（含 role=tab）no-drag，防抖 120ms', () => {
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('-webkit-app-region');
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('[role=tab]');
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('setTimeout');
+  it('拖拽区脚本：JS 拖拽（mousedown→drag-start / mouseup→drag-end），不碰页面布局', () => {
+    expect(DSH_HEADER_DRAG_SCRIPT).toContain('drag-start');
+    expect(DSH_HEADER_DRAG_SCRIPT).toContain('drag-end');
+    expect(DSH_HEADER_DRAG_SCRIPT).toContain('windowControl');
+    expect(DSH_HEADER_DRAG_SCRIPT).toContain('mousedown');
+    expect(DSH_HEADER_DRAG_SCRIPT).toContain('mouseup');
+    // 不再用 CSS app-region / 下移内容（避免滚动条）
+    expect(DSH_HEADER_DRAG_SCRIPT).not.toContain('-webkit-app-region');
+    expect(DSH_HEADER_DRAG_SCRIPT).not.toContain('padding-top');
   });
 
   it('轨迹视图脚本：选中轨迹隐藏 composer 底部层，锚点不依赖哈希前缀', () => {
