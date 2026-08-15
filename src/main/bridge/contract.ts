@@ -191,6 +191,8 @@ export const BRIDGE_API = {
   openPromptSettings: 'dsh:openPromptSettings',
   /** 返回对话主界面（设置/通知/日志页的"返回对话"） */
   openMain: 'dsh:openMain',
+  /** 手动检查更新（右上角"检查更新"按钮，[D78] 自动更新） */
+  checkForUpdates: 'dsh:checkForUpdates',
   // ---- 端口 ----
   choosePort: 'dsh:choosePort',
   // ---- 安装向导 ----

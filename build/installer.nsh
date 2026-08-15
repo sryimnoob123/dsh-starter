@@ -4,8 +4,10 @@
 ; 重要：用 ${ifNot} ${isUpdated} 保护——自动更新（--updated）时跳过，绝不能删掉用户数据 dsh-home。
 !macro customUnInstall
   ${ifNot} ${isUpdated}
-    ; 1) 杀掉残留的 dsh 服务（node.exe 且命令行含 dsh），解锁被占用的文件
+    ; 1) 杀掉残留的 dsh 服务（app 被 taskkill /f 强杀时 before-quit 不触发，服务成孤儿锁文件+端口）
     nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Where-Object { $$_.Name -eq 'node.exe' -and $$_.CommandLine -like '*dsh*' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }"`
+    ; 等进程真正退出、释放文件句柄（否则紧接着的 RMDir 还是删不掉被锁的文件）
+    Sleep 2000
     ; 2) 双保险删掉运行时生成的 dsh-home / dsh（默认 RMDir /r $INSTDIR 之外）
     RMDir /r "$INSTDIR\dsh-home"
     RMDir /r "$INSTDIR\dsh"

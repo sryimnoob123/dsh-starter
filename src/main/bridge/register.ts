@@ -41,6 +41,8 @@ export interface ShellOps {
   openPromptSettings(): void;
   /** 返回对话主界面（设置/通知/日志页的"返回对话"） */
   openMain(): void;
+  /** 手动检查更新（右上角"检查更新"按钮，[D78]） */
+  checkForUpdates(): void;
   /** 用户选定端口：记住并重跑启动序列（[FR-25.3]） */
   choosePort(port: number): Promise<void>;
   /** 安装向导：开始安装（ask 步 → 进入选目录步） */
@@ -93,6 +95,8 @@ export function registerBridge(ops: ShellOps): void {
   ipcMain.handle(BRIDGE_API.openPromptSettings, () => ops.openPromptSettings());
 
   ipcMain.handle(BRIDGE_API.openMain, () => ops.openMain());
+
+  ipcMain.handle(BRIDGE_API.checkForUpdates, () => ops.checkForUpdates());
 
   ipcMain.handle(BRIDGE_API.choosePort, (_event, raw: unknown) => {
     const port = parsePort(raw);

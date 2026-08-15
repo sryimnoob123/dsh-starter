@@ -12,8 +12,9 @@ import {
 } from './contract.js';
 
 describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D79] 外包包 §2）', () => {
-  it('锁定 26 个方法名', () => {
+  it('锁定 27 个方法名', () => {
     expect(Object.keys(BRIDGE_API).sort()).toEqual([
+      'checkForUpdates',
       'choosePort',
       'clearNotifications',
       'discoverModels',

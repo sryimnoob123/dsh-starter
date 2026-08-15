@@ -43,10 +43,12 @@ describe('desktopChrome 注入脚本（整窗外观，[D83]/[D84]/[D85]）', () 
     expect(bracesBalanced(code)).toBe(true);
   });
 
-  it('悬浮按钮 = 最小化/最大化/关闭三个（用户拍板：设置入口在官方设置内，右上角无齿轮）', () => {
+  it('悬浮按钮 = 检查更新 + 最小化/最大化/关闭（[D78] 更新按钮；设置入口在官方设置内，右上角无齿轮）', () => {
+    expect(FLOATING_CONTROLS_SCRIPT).toContain('data-act="check-update"');
     expect(FLOATING_CONTROLS_SCRIPT).toContain('data-act="minimize"');
     expect(FLOATING_CONTROLS_SCRIPT).toContain('data-act="toggle-maximize"');
     expect(FLOATING_CONTROLS_SCRIPT).toContain('data-act="close"');
+    expect(FLOATING_CONTROLS_SCRIPT).toContain('checkForUpdates');
     expect(FLOATING_CONTROLS_SCRIPT).not.toContain('open-settings');
   });
 
