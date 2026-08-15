@@ -59,7 +59,7 @@ import {
   projectAgentsPath,
   resolveWorkspacePath,
 } from './prompt/projectInstructions.js';
-import { normalizeSessionUsage } from './usage/sessionUsage.js';
+import { aggregateSessionUsage } from './usage/sessionUsage.js';
 import {
   buildDesktopPatchYaml,
   externalAgentsPath,
@@ -124,8 +124,6 @@ function scheduleServiceRestart(win: BrowserWindow): void {
 }
 let eventSocket: WebSocket | null = null;
 let configStore: ConfigStore | null = null;
-/** 最后已知的当前会话（壳本地页用量统计等用；DSH 页面加载时持续刷新） */
-let lastSessionId: string | null = null;
 /** job 状态跟踪器（跨重连存活，[FR-4.1] 断线补偿；评审 C1 修复） */
 const moduleJobTracker = new JobTracker();
 
@@ -538,16 +536,6 @@ async function readCurrentSessionId(win: BrowserWindow): Promise<string | null> 
   }
 }
 
-/** 刷新 lastSessionId（DSH 页面加载时 + 周期巡检；壳本地页用量统计用这个缓存值） */
-function refreshKnownSession(win: BrowserWindow): void {
-  if (!isDshAppUrl(win.webContents.getURL())) return;
-  void readCurrentSessionId(win)
-    .then((id) => {
-      if (id) lastSessionId = id;
-    })
-    .catch(() => undefined);
-}
-
 /** [FR-27] 托盘"压缩上下文"：session.prompt 发 /compact 斜杠命令（DSH 宿主执行，不进模型轮次） */
 async function runCompactCommand(win: BrowserWindow): Promise<void> {
   const sessionId = await readCurrentSessionId(win);
@@ -851,7 +839,6 @@ function createWindow(): BrowserWindow {
       win.webContents.executeJavaScript(PAGE_DRAG_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(PAGE_THEME_CSS).catch(() => undefined);
     } else if (url.startsWith('http://127.0.0.1')) {
-      refreshKnownSession(win);
       win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(DSH_HEADER_DRAG_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(VIEW_TAB_SCRIPT).catch(() => undefined);
@@ -1328,35 +1315,15 @@ const shellOps: ShellOps = {
     }
   },
   getSessionUsage: async () => {
-    // 用量统计（ZCode 式）：当前会话 → session.history 尾部页 → host 现成的
-    // sessionStats/tokenUsage 投影（无壳侧聚合；壳本地页读不到 localStorage，用 lastSessionId 缓存）
-    const win = mainWindow;
-    const liveId = win && isDshAppUrl(win.webContents.getURL())
-      ? await readCurrentSessionId(win)
-      : null;
-    const sessionId = liveId ?? lastSessionId;
-    if (!sessionId) return { ok: false, message: '没有当前会话：先在对话页打开一个会话。' };
+    // 用量统计（ZCode 式界面）：全部会话累计（[FR-12.2] 全部 token，非单会话）。
+    // 数据源 = session.list —— 每个会话行自带 projections（sessionStats + tokenUsage），
+    // 遍历累加即可，零壳侧聚合，也无需逐个 session.history。
     const port = getStore().load().port ?? 3080;
     try {
-      const value = await callRpc({
-        port,
-        method: 'session.history',
-        payload: { sessionId, maxMessages: 1 },
-      });
-      const projections = (value as { projections?: unknown } | null | undefined)?.projections;
-      if (typeof projections !== 'object' || projections === null) {
-        return { ok: false, message: '该 DSH 版本没有用量投影，无法统计。' };
-      }
-      const values = (projections as { values?: Record<string, unknown> }).values ?? {};
-      const usage = normalizeSessionUsage(values);
-      const titleRaw = values.title;
-      const title =
-        typeof titleRaw === 'string'
-          ? titleRaw
-          : (typeof titleRaw === 'object' && titleRaw !== null && typeof (titleRaw as { title?: unknown }).title === 'string')
-            ? String((titleRaw as { title: string }).title)
-            : '';
-      return { ok: true, sessionId, title, usage };
+      const value = await callRpc({ port, method: 'session.list', payload: {} });
+      const items = (value as { items?: unknown } | null | undefined)?.items;
+      const { usage, sessionCount } = aggregateSessionUsage(items);
+      return { ok: true, usage, sessionCount };
     } catch (error) {
       return {
         ok: false,
@@ -1410,10 +1377,6 @@ if (!gotLock) {
     nativeTheme.on('updated', () => {
       applyDesktopTheme();
     });
-    // 周期巡检当前会话（壳本地页用量统计等依赖 lastSessionId；DSH 启动后才写 localStorage）
-    setInterval(() => {
-      if (mainWindow) refreshKnownSession(mainWindow);
-    }, 5_000);
     void startShell(win);
   });
   app.on('window-all-closed', () => {

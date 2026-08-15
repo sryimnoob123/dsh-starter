@@ -40,7 +40,7 @@ export interface SessionUsage {
 }
 
 export type GetSessionUsageResult =
-  | { ok: true; sessionId: string; title: string; usage: SessionUsage }
+  | { ok: true; usage: SessionUsage; sessionCount: number }
   | { ok: false; message: string };
 
 export type ListProjectInstructionsResult =
