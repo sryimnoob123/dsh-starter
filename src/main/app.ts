@@ -602,12 +602,16 @@ async function startShell(win: BrowserWindow): Promise<void> {
   const config = store.load();
 
   const nodeOk = isNodeOk(process.versions.node);
-  const installedBin = config.installDir !== undefined ? dshBinPath(config.installDir) : null;
+  // 已装 dsh 的检测位置：优先 config.installDir（历史下载），否则默认「安装目录/dsh」（三样同目录）。
+  // 这样用户手动把已下载的 dsh 放到安装目录/dsh，壳也能检测到并弹窗问「用已装的还是重新下载」。
+  const defaultDshDir = join(shellInstallDir(), 'dsh');
+  const dshDir = config.installDir !== undefined ? config.installDir : defaultDshDir;
+  const installedBin = dshBinPath(dshDir);
   // 检测本机已装 dsh：安装目录的 dsh（npm 安装版）/ PATH 里的全局 dsh。
   // 注意：不能看 process.cwd()/package.json——壳的 cwd 继承自启动它的进程，与 DSH 是否已装无关，会误判。
   const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
   const dshDetected =
-    (installedBin !== null && existsSync(installedBin)) ||
+    (existsSync(installedBin)) ||
     globalDsh;
 
   // managed 模式：检测到本机已装 dsh（且未下载过、未问过）→ 弹窗问用户用已装的还是重新下载
@@ -691,9 +695,9 @@ async function startShell(win: BrowserWindow): Promise<void> {
     serviceProcess = null;
   }
   const usingInstalled =
-    process.env.DSH_COMMAND === undefined && installedBin !== null && existsSync(installedBin);
+    process.env.DSH_COMMAND === undefined && existsSync(installedBin);
   let spec: SpawnSpec;
-  if (usingInstalled && config.installDir !== undefined) {
+  if (usingInstalled) {
     // npm 安装版（快启动）：自备/自下载 Node 直跑编译好的 DSH CLI（不依赖系统 node/npm）
     const runtime = await ensureNodeRuntime({
       userData: app.getPath('userData'),
@@ -701,7 +705,7 @@ async function startShell(win: BrowserWindow): Promise<void> {
     });
     spec = buildNodeSpawnSpec({
       nodeExe: runtime.nodeExe,
-      dshEntry: dshEntryJsPath(config.installDir),
+      dshEntry: dshEntryJsPath(dshDir),
       port,
     });
   } else {
