@@ -108,7 +108,6 @@
         <div class="oc-head-main">
           <h1 class="oc-page-title" id="title"></h1>
           <p class="oc-desc" id="lede"></p>
-          <span class="oc-session" id="sessionLine"></span>
         </div>
         <button class="oc-btn" id="backBtn" type="button"></button>
       </div>
@@ -140,6 +139,7 @@
         <h2 id="activityTitle"></h2>
         <p class="oc-desc" id="activityHint"></p>
         <div class="oc-grid">
+          <div class="oc-stat"><span class="k" id="sessionsLabel"></span><span class="v" id="sessionsValue">–</span></div>
           <div class="oc-stat"><span class="k" id="turnsLabel"></span><span class="v" id="turnsValue">–</span></div>
           <div class="oc-stat"><span class="k" id="stepsLabel"></span><span class="v" id="stepsValue">–</span></div>
         </div>
@@ -158,7 +158,7 @@
         zh: {
           docTitle: '用量统计',
           title: '用量统计',
-          lede: '当前会话的用量汇总（DSH 官方统计口径）。',
+          lede: '全部会话的累计用量（DSH 官方统计口径，跨所有会话求和）。',
           back: '返回对话',
           tokensTitle: 'Token',
           tokensHint: '输入为计费口径（未缓存 + 缓存读 + 缓存写）；输出与缓存读写分开统计。',
@@ -174,7 +174,8 @@
           ttftLabel: '平均首 token',
           decodeLabel: '解码速度',
           activityTitle: '活动',
-          activityHint: '轮次 = 用户消息轮数；步数 = agent 执行的步数。',
+          activityHint: '会话数 = 参与统计的会话个数；轮次 = 用户消息轮数；步数 = agent 执行的步数。',
+          sessionsLabel: '会话数',
           turnsLabel: '轮次',
           stepsLabel: '步数',
           loading: '正在读取用量…',
@@ -185,7 +186,7 @@
         en: {
           docTitle: 'Usage',
           title: 'Usage',
-          lede: 'Usage totals for the current session (DSH official accounting).',
+          lede: 'Cumulative usage across all sessions (DSH official accounting).',
           back: 'Back to chat',
           tokensTitle: 'Tokens',
           tokensHint: 'Input is billed (uncached + cache read + cache write); output and cache traffic are tracked separately.',
@@ -201,7 +202,8 @@
           ttftLabel: 'Avg first token',
           decodeLabel: 'Decode speed',
           activityTitle: 'Activity',
-          activityHint: 'Turns = user message turns; steps = agent steps executed.',
+          activityHint: 'Sessions = number of sessions counted; turns = user message turns; steps = agent steps executed.',
+          sessionsLabel: 'Sessions',
           turnsLabel: 'Turns',
           stepsLabel: 'Steps',
           loading: 'Loading usage…',
@@ -232,6 +234,7 @@
       $('decodeLabel').textContent = t.decodeLabel;
       $('activityTitle').textContent = t.activityTitle;
       $('activityHint').textContent = t.activityHint;
+      $('sessionsLabel').textContent = t.sessionsLabel;
       $('turnsLabel').textContent = t.turnsLabel;
       $('stepsLabel').textContent = t.stepsLabel;
 
@@ -280,7 +283,6 @@
             ? Math.round((u.decodeTokens / (u.decodeMs / 1000)) * 10) / 10
             : null;
 
-          $('sessionLine').textContent = result.title ? t.session + result.title : '';
           $('inputValue').textContent = fmtTokens(u.uncachedInputTokens || 0);
           $('outputValue').textContent = fmtTokens(u.outputTokens || 0);
           $('cacheReadValue').textContent = fmtTokens(u.cacheReadTokens || 0);
@@ -290,6 +292,7 @@
           $('toolValue').textContent = fmtDuration(u.toolMs || 0);
           $('ttftValue').textContent = avgTtft === null ? '–' : `${Math.round(avgTtft / 100) / 10}s`;
           $('decodeValue').textContent = decodeSpeed === null ? '–' : `${decodeSpeed} t/s`;
+          $('sessionsValue').textContent = String(result.sessionCount || 0);
           $('turnsValue').textContent = String(u.turns || 0);
           $('stepsValue').textContent = String(u.steps || 0);
           setStatus('', false);

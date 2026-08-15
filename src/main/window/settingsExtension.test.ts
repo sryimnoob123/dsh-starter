@@ -56,18 +56,11 @@ describe('SETTINGS_EXTENSION_SCRIPT（DSH 官方设置扩展）', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.savePromptSettings(');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.listProjectInstructions()');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.saveProjectInstruction(');
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.getSessionUsage()');
   });
 
-  it('用量统计并入官方设置：第二导航格 + 数据卡标记 + 双语', () => {
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-nav');
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-section');
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain("ICON('chart')");
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain("usageTitle: '用量统计'");
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain("usageTitle: 'Usage'");
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-cache-hit');
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-ttft');
-    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-refresh');
+  it('不占用官方设置的用量统计（用量统计是独立托盘页 usage.html，非设置内卡片）', () => {
+    expect(SETTINGS_EXTENSION_SCRIPT).not.toContain('dsh-gp-usage-nav');
+    expect(SETTINGS_EXTENSION_SCRIPT).not.toContain('dsh-gp-usage-section');
   });
 
   it('生效状态徽标：壳管模式（🟢）/ 外部模式（🔴）+ 双语', () => {

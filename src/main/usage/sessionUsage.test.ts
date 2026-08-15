@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSessionUsage } from './sessionUsage.js';
+import { aggregateSessionUsage, normalizeSessionUsage } from './sessionUsage.js';
 
 describe('normalizeSessionUsage（session.history projections 归一化）', () => {
   it('从完整 projections 提取字段', () => {
@@ -40,5 +40,36 @@ describe('normalizeSessionUsage（session.history projections 归一化）', () 
     expect(u.steps).toBe(0);
     expect(u.cacheReadTokens).toBe(13);
     expect(u.cacheWriteTokens).toBe(0);
+  });
+});
+
+describe('aggregateSessionUsage（session.list 全部会话累计，[FR-12.2]）', () => {
+  const row = (turns: number, input: number, output: number) => ({
+    projections: {
+      values: {
+        sessionStats: { turns, steps: 1, llmMs: 100, toolMs: 50, ttftMs: 10, ttftSteps: 1, decodeMs: 20, decodeTokens: 5 },
+        tokenUsage: { uncachedInputTokens: input, outputTokens: output, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      },
+    },
+  });
+
+  it('遍历累加每个会话的 projections.values', () => {
+    const { usage, sessionCount } = aggregateSessionUsage([row(2, 100, 50), row(3, 200, 100)]);
+    expect(sessionCount).toBe(2);
+    expect(usage.turns).toBe(5);
+    expect(usage.uncachedInputTokens).toBe(300);
+    expect(usage.outputTokens).toBe(150);
+    expect(usage.llmMs).toBe(200);
+    expect(usage.ttftSteps).toBe(2);
+    expect(usage.decodeTokens).toBe(10);
+  });
+
+  it('缺投影/空列表一律归 0，不炸（DSH 升级向后兼容）', () => {
+    expect(aggregateSessionUsage(null)).toEqual({
+      usage: normalizeSessionUsage(undefined),
+      sessionCount: 0,
+    });
+    expect(aggregateSessionUsage([{ projections: undefined }, { projections: { values: undefined } }]))
+      .toEqual({ usage: normalizeSessionUsage(undefined), sessionCount: 2 });
   });
 });
