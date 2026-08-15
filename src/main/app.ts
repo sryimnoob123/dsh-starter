@@ -23,7 +23,7 @@ import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from '
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { saveConnectionToService } from './onboarding/dshConfig.js';
-import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_MIRROR, dshBinPath, dshEntryJsPath, findGlobalDsh } from './install/dshPackage.js';
+import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_MIRROR, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
 import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
@@ -1107,39 +1107,47 @@ async function restartService(win: BrowserWindow): Promise<void> {
 // ---------------------------------------------------------------------------
 let installRunning = false;
 
-/** npm install --prefix <目录> @deepseek-ai/dsh；stdout 尾巴推给页面当进度文案 + 渐进式进度条 */
+/**
+ * npm install --prefix <目录> @deepseek-ai/dsh。
+ * 用 `--loglevel=http` 让 npm 把每次真实下载打到 stderr（`npm http fetch GET 200 <url> … (cache miss)`），
+ * 解析它 = 真实进度：每下载一个包 +1，同时显示正在下载的包名（不再用假进度条）。
+ * 总量无法预先知道，进度条保持「不确定」动画，但「已下载 N 个包」是真实且单调增长的。
+ */
 function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string, registry: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const child = spawn(npmCmd, buildNpmInstallArgs(dir, registry), {
+    const child = spawn(npmCmd, [...buildNpmInstallArgs(dir, registry), '--loglevel=http'], {
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let lastLine = '';
-    // npm 不提供精确总进度，用「渐进逼近 90%」的时间驱动进度条：开始涨得快、越往后越慢，
-    // 无论下载多久进度条都在动且不会卡在 100%；真正完成时由 runInstallFlow 推 done=100%。
-    let progress = 0;
-    const timer = setInterval(() => {
-      progress += (90 - progress) * 0.06;
-      sendProgress(win, {
-        phase: 'install',
-        percent: Math.round(progress),
-        detail: lastLine !== '' ? `npm：${lastLine}` : '正在下载并安装 DeepSeek Harness…',
-      });
-    }, 400);
-    child.stdout?.on('data', (chunk: Buffer) => {
-      const lines = chunk.toString().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      if (lines.length > 0) {
-        lastLine = lines[lines.length - 1] ?? '';
+    let downloaded = 0;
+    let currentPkg = '';
+    let stderrBuf = '';
+    sendProgress(win, { phase: 'install', percent: -1, detail: '正在解析依赖清单…' });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      writeLog('shell', `npm: ${text}`);
+      stderrBuf += text;
+      const lines = stderrBuf.split(/\r?\n/);
+      stderrBuf = lines.pop() ?? ''; // 最后一段可能跨 chunk，留到下一段拼接
+      for (const line of lines) {
+        const evt = parseNpmFetchLine(line);
+        if (evt && evt.tarball) {
+          downloaded += 1;
+          currentPkg = evt.name;
+          sendProgress(win, {
+            phase: 'install',
+            percent: -1,
+            detail: `已下载 ${downloaded} 个包：${currentPkg}`,
+          });
+        }
       }
     });
-    child.stderr?.on('data', (chunk: Buffer) => writeLog('shell', `npm: ${chunk.toString()}`));
+    child.stdout?.on('data', (chunk: Buffer) => writeLog('shell', `npm: ${chunk.toString()}`));
     child.on('error', (error) => {
       writeLog('shell', `npm spawn failed: ${String(error)}`);
-      clearInterval(timer);
       resolve(null);
     });
     child.on('exit', (code) => {
-      clearInterval(timer);
       resolve(code);
     });
   });
