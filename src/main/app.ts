@@ -1296,7 +1296,9 @@ const shellOps: ShellOps = {
 // ---------------------------------------------------------------------------
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
-  app.quit();
+  // app.quit() 在 ready 前调用在 Windows 上不可靠（打包版实测会继续启动，
+  // 造成多实例并存）；app.exit 立即退出，不等事件循环
+  app.exit(0);
 } else {
   app.on('second-instance', () => {
     mainWindow?.show();

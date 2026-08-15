@@ -63,6 +63,13 @@ describe('SETTINGS_EXTENSION_SCRIPT（DSH 官方设置扩展）', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('setInterval(attach, 1500)');
   });
 
+  it('面板挂进 .content 并自身滚动（回归：挂 .panel 是 overflow:hidden 定高会裁掉内容、无法上下滑动）', () => {
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('content.appendChild(section)');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('content.lastElementChild');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('overflow-y:auto');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('flex:1 1 auto');
+  });
+
   it('默认 persona 与规范串一致（评审 M3 漂移锁：面板/独立页/主进程三处同源）', () => {
     // 面板脚本内联的默认 persona 必须等于 promptSettings.ts 的规范串
     expect(SETTINGS_EXTENSION_SCRIPT).toContain(WEB_BASE_PERSONA);
