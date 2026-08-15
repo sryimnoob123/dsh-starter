@@ -324,7 +324,7 @@
           title: '设置',
           lede: '管理提示词注入、项目级指令、通知与外观。改动只影响桌面端自己拉起的服务；保存即生效。',
           reuseBanner:
-            '当前复用的是外部 DSH 服务：身份注入 / persona / 全局指令由那个服务的环境决定，桌面端无法接管（通知开关与外观除外）。如需接管：在原处停止外部服务，再回到桌面重新启动。',
+            '当前连接的是已经在运行的服务：全局提示词、身份、Persona 都由那个服务决定，这里只能看、不能改（通知开关与外观除外）。想在这里改，先在原处停掉那个服务，再回到桌面端重新启动。',
           preview: '预览模式：未连接壳，编辑不会保存。',
           gGlobalTitle: '全局系统提示词',
           gGlobalHint: '这个文件就是 DSH 每轮都会注入的全局指令（agent-instructions）。改这里 = 改全局注入内容；DSH 检测到文件变化后自动同步到会话。',
@@ -374,7 +374,7 @@
           title: 'Settings',
           lede: 'Manage prompt injection, project instructions, notifications and appearance. Changes only affect the service started by this app and apply on save.',
           reuseBanner:
-            'An external DSH service is being reused: identity / persona / global instructions belong to that service and cannot be taken over from here (notifications and appearance still work). To take over, stop the external service where it was started, then restart from this app.',
+            'Connected to an already-running service: the global prompt, identity and persona are all decided there, so these are read-only here (notifications and appearance still work). To edit here, stop that service where it was started, then restart from this app.',
           preview: 'Preview mode: no shell connected, edits are not saved.',
           gGlobalTitle: 'Global system prompt',
           gGlobalHint: 'This file is the global instruction set DSH injects every turn (agent-instructions). Editing it edits what gets injected; DSH picks up changes automatically.',

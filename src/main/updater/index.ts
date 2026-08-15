@@ -16,7 +16,7 @@ export function setupAutoUpdater(): void {
 
   autoUpdater.on('update-downloaded', (info) => {
     const notification = new Notification({
-      title: 'deepseekharness',
+      title: app.getName(),
       body: `新版本 ${info.version} 已下载，点击安装（重启后自动接回会话）`,
     });
     notification.on('click', () => void promptInstall(info.version));
@@ -26,7 +26,7 @@ export function setupAutoUpdater(): void {
   autoUpdater.on('update-not-available', () => {
     if (!manualCheckPending) return;
     manualCheckPending = false;
-    new Notification({ title: 'deepseekharness', body: '已是最新版本。' }).show();
+    new Notification({ title: app.getName(), body: '已是最新版本。' }).show();
   });
 
   autoUpdater.on('error', () => {
@@ -43,7 +43,7 @@ export function setupAutoUpdater(): void {
  */
 export function checkForUpdatesManually(): void {
   if (!app.isPackaged) {
-    new Notification({ title: 'deepseekharness', body: '开发模式不检查更新（发布通道仅打包版可用）。' }).show();
+    new Notification({ title: app.getName(), body: '开发模式不检查更新（发布通道仅打包版可用）。' }).show();
     return;
   }
   manualCheckPending = true;
