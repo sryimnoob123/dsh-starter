@@ -187,8 +187,6 @@ export const BRIDGE_API = {
   openLogs: 'dsh:openLogs',
   readLog: 'dsh:readLog',
   goInstall: 'dsh:goInstall',
-  /** 选择已有 DSH 目录并保存（guide 页 dsh-missing 的备选路径，[D90] 服务生命周期归壳） */
-  selectDshDirectory: 'dsh:selectDshDirectory',
   /** 打开设置页（标题栏齿轮入口，[FR-21]：功能设置从对话页面可直达） */
   openPromptSettings: 'dsh:openPromptSettings',
   /** 返回对话主界面（设置/通知/日志页的"返回对话"） */
@@ -278,10 +276,10 @@ export function parseInstallPhase(raw: unknown): InstallPhase | null {
   return typeof raw === 'string' && phases.includes(raw) ? (raw as InstallPhase) : null;
 }
 
-/** 窗口控制动作（自绘标题栏：[D84]） */
-export type WindowAction = 'minimize' | 'toggle-maximize' | 'close';
+/** 窗口控制动作（自绘标题栏：[D84]；drag-start/drag-end = 无边框窗口 JS 拖拽，[D84]） */
+export type WindowAction = 'minimize' | 'toggle-maximize' | 'close' | 'drag-start' | 'drag-end';
 
 export function parseWindowAction(raw: unknown): WindowAction | null {
-  const actions: readonly string[] = ['minimize', 'toggle-maximize', 'close'];
+  const actions: readonly string[] = ['minimize', 'toggle-maximize', 'close', 'drag-start', 'drag-end'];
   return typeof raw === 'string' && actions.includes(raw) ? (raw as WindowAction) : null;
 }

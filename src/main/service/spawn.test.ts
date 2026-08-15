@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCheckoutSpawnSpec, buildCommandArgs, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec } from './spawn.js';
+import { buildCommandArgs, buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec } from './spawn.js';
 
 describe('buildCommandArgs（启动命令 = 稳定边界 §4.1）', () => {
   it('spawns dsh web with explicit port', () => {
@@ -45,15 +45,6 @@ describe('buildNodeSpawnSpec（自备 Node 直跑 DSH CLI）', () => {
     ).toEqual({
       command: 'C:/rt/node/node.exe',
       args: ['C:/d/dsh/lib/bin.js', 'web', '--port', '3080'],
-    });
-  });
-});
-
-describe('buildCheckoutSpawnSpec（checkout 直跑，对齐用户 start.bat，[D90]）', () => {
-  it('node --import tsx/esm apps/cli/src/bin.ts web --port <n>', () => {
-    expect(buildCheckoutSpawnSpec({ port: 3080 })).toEqual({
-      command: 'node',
-      args: ['--import', 'tsx/esm', 'apps/cli/src/bin.ts', 'web', '--port', '3080'],
     });
   });
 });
