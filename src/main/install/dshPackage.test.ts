@@ -2,15 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { buildNpmInstallArgs, dshBinPath, dshEntryJsPath, DSH_NPM_REGISTRY, DSH_PACKAGE, findGlobalDsh, npmCommand, parseNpmFetchLine } from './dshPackage.js';
 
 describe('buildNpmInstallArgs', () => {
-  it('锁定 npm install --prefix <目录> --registry <镜像> <包名> 顺序', () => {
+  it('锁定 npm install --prefix <目录> --registry <镜像> --fetch-retries=1 顺序', () => {
     expect(buildNpmInstallArgs('C:\\Apps\\dsh-desktop')).toEqual([
       'install',
       '--prefix',
       'C:\\Apps\\dsh-desktop',
       '--registry',
       DSH_NPM_REGISTRY,
+      '--fetch-retries=1',
+      '--no-audit',
+      '--no-fund',
       DSH_PACKAGE,
     ]);
+  });
+
+  it('默认源是 npmmirror（国内镜像，官方源在本机网络下频繁 ECONNRESET）', () => {
+    expect(DSH_NPM_REGISTRY).toBe('https://registry.npmmirror.com');
   });
 
   it('包名锁定为官方 npm 包 @deepseek-ai/dsh', () => {

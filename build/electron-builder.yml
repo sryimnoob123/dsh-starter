@@ -10,6 +10,11 @@ files:
   - dist/main/**/*
   - assets/**/*
   - package.json
+# 打包内置 DSH（[FR-22] 增强）：把预下载的 vendor/dsh/node_modules 打进 <安装目录>/dsh/node_modules，
+# 安装后即检测到并直接启动，免去安装时的联网 npm 下载（官方源在本机网络下频繁 ECONNRESET）。
+extraFiles:
+  - from: vendor/dsh/node_modules
+    to: dsh/node_modules
 win:
   target:
     - nsis

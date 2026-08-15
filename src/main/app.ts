@@ -23,7 +23,7 @@ import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from '
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { saveConnectionToService } from './onboarding/dshConfig.js';
-import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_MIRROR, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
+import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_FALLBACK, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
 import { ensureNodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
@@ -603,19 +603,25 @@ async function startShell(win: BrowserWindow): Promise<void> {
 
   const nodeOk = isNodeOk(process.versions.node);
   // 已装 dsh 的检测位置：优先 config.installDir（历史下载），否则默认「安装目录/dsh」（三样同目录）。
-  // 这样用户手动把已下载的 dsh 放到安装目录/dsh，壳也能检测到并弹窗问「用已装的还是重新下载」。
+  // 打包内置的 dsh 就落在这里（electron-builder extraFiles → <安装目录>/dsh/node_modules），
+  // 所以安装后无需联网下载、直接就能检测到并启动。
   const defaultDshDir = join(shellInstallDir(), 'dsh');
-  const dshDir = config.installDir !== undefined ? config.installDir : defaultDshDir;
+  // 优先 config.installDir（用户手动选过目录）；但若它已失效（目录里没有 dsh），回落内置/默认目录，
+  // 避免旧配置指向已删除/损坏的目录、反而盖过打包内置的 dsh 导致误判「未安装」。
+  let dshDir = config.installDir !== undefined ? config.installDir : defaultDshDir;
+  if (!existsSync(dshBinPath(dshDir)) && existsSync(dshBinPath(defaultDshDir))) {
+    dshDir = defaultDshDir;
+  }
   const installedBin = dshBinPath(dshDir);
-  // 检测本机已装 dsh：安装目录的 dsh（npm 安装版）/ PATH 里的全局 dsh。
+  // 检测本机已装 dsh：安装目录的 dsh（npm 安装版/打包内置版）/ PATH 里的全局 dsh。
   // 注意：不能看 process.cwd()/package.json——壳的 cwd 继承自启动它的进程，与 DSH 是否已装无关，会误判。
   const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
-  const dshDetected =
-    (existsSync(installedBin)) ||
-    globalDsh;
+  const hasLocalDsh = existsSync(installedBin);
+  const dshDetected = hasLocalDsh || globalDsh;
 
-  // managed 模式：检测到本机已装 dsh（且未下载过、未问过）→ 弹窗问用户用已装的还是重新下载
-  if (dshDetected && config.installDir === undefined && config.dshChoice === undefined) {
+  // managed 模式：只有「本地（安装目录/内置）没有、但 PATH 里有全局 dsh」才弹窗问用哪个。
+  // 内置 dsh 直接就用，不弹「检测到已装一份」的框（打包后每次启动都问会很烦）。
+  if (dshDetected && !hasLocalDsh && config.installDir === undefined && config.dshChoice === undefined) {
     const { response } = await dialog.showMessageBox(win, {
       type: 'question',
       title: '要用哪个 DeepSeek Harness？',
@@ -1119,7 +1125,8 @@ function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string, registry
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let downloaded = 0;
+    let fetched = 0; // 依赖清单（manifest）请求数
+    let downloaded = 0; // 实际下载的包（tarball）数
     let currentPkg = '';
     let stderrBuf = '';
     sendProgress(win, { phase: 'install', percent: -1, detail: '正在解析依赖清单…' });
@@ -1131,14 +1138,14 @@ function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string, registry
       stderrBuf = lines.pop() ?? ''; // 最后一段可能跨 chunk，留到下一段拼接
       for (const line of lines) {
         const evt = parseNpmFetchLine(line);
-        if (evt && evt.tarball) {
+        if (!evt) continue;
+        currentPkg = evt.name;
+        if (evt.tarball) {
           downloaded += 1;
-          currentPkg = evt.name;
-          sendProgress(win, {
-            phase: 'install',
-            percent: -1,
-            detail: `已下载 ${downloaded} 个包：${currentPkg}`,
-          });
+          sendProgress(win, { phase: 'install', percent: -1, detail: `已下载 ${downloaded} 个包：${currentPkg}` });
+        } else {
+          fetched += 1;
+          sendProgress(win, { phase: 'install', percent: -1, detail: `正在解析依赖清单…已获取 ${fetched} 个包信息` });
         }
       }
     });
@@ -1164,12 +1171,12 @@ async function runInstallFlow(win: BrowserWindow, dir: string): Promise<void> {
       onProgress: (detail) => sendProgress(win, { phase: 'download', percent: -1, detail }),
     });
     sendProgress(win, { phase: 'download', percent: -1, detail: `正在下载 DSH 到 ${dir} …` });
-    // 先走官方 registry（实测更快），失败（被墙/网络问题）自动回落 npmmirror 镜像重试一次
+    // 默认走 npmmirror（国内镜像，稳定）；失败自动回落官方 registry 重试一次
     let code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY);
     if (code !== 0) {
-      writeLog('shell', `npm install via official registry failed (code=${code}), falling back to mirror`);
-      sendProgress(win, { phase: 'install', percent: 0, detail: '官方源下载失败，切换到镜像源重试…' });
-      code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY_MIRROR);
+      writeLog('shell', `npm install via npmmirror failed (code=${code}), falling back to official registry`);
+      sendProgress(win, { phase: 'install', percent: 0, detail: '镜像源下载失败，切换到官方源重试…' });
+      code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY_FALLBACK);
     }
     if (code !== 0) {
       // 页面 error 步自带"重新安装/查看日志"按钮，不再 reload 回 ask

@@ -11,7 +11,8 @@
         "test": "vitest run",
         "typecheck": "tsc --noEmit",
         "build": "tsc && node scripts/postbuild.mjs",
-        "dist": "pnpm build && electron-builder --win --config build/electron-builder.yml",
+        "prepare:dsh": "node scripts/prepare-dsh.mjs",
+        "dist": "pnpm prepare:dsh && pnpm build && electron-builder --win --config build/electron-builder.yml",
         "start": "electron ."
     },
     "dependencies": {
