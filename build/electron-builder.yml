@@ -24,3 +24,5 @@ publish:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # 产物名与 latest.yml 的 url/path 严格一致（连字符），自动更新才能命中资产
+  artifactName: ${productName}-Setup-${version}.${ext}

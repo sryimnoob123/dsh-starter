@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import {
   buildDesktopPatchYaml,
   defaultPromptUserConfig,
   desktopDshHome,
+  externalAgentsPath,
   globalAgentsPath,
   isPromptCustomized,
   normalizePromptConfig,
+  resolveExternalDshHome,
   WEB_BASE_PERSONA,
 } from './promptSettings.js';
 
@@ -99,5 +102,18 @@ describe('路径', () => {
     const p = globalAgentsPath('/data/user');
     expect(p.endsWith('AGENTS.md')).toBe(true);
     expect(p).toContain('dsh-home');
+  });
+});
+
+describe('复用模式外部 DSH_HOME（[D90] 全局指令编辑落点）', () => {
+  it('默认 ~/.deepseek-harness；AGENTS.md 挂在其下', () => {
+    const home = resolveExternalDshHome();
+    expect(home.endsWith('.deepseek-harness')).toBe(true);
+    expect(externalAgentsPath()).toBe(join(home, 'AGENTS.md'));
+  });
+
+  it('配置指定 DSH_HOME 时用配置', () => {
+    expect(resolveExternalDshHome('D:\\data\\dsh')).toBe('D:\\data\\dsh');
+    expect(externalAgentsPath('D:\\data\\dsh')).toBe(join('D:\\data\\dsh', 'AGENTS.md'));
   });
 });

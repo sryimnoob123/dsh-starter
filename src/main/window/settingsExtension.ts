@@ -43,7 +43,36 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       saved: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
       savedRestart: '设置已保存，正在重启服务…',
       failed: '保存失败：',
-      reuse: '当前连接的是已经在运行的服务，全局提示词、身份、Persona 都由它决定，这里只能看、不能改。',
+      reuse: '当前连接的是已经在运行的服务：全局提示词可直接编辑（新会话生效）；身份 / Persona 改动需重启服务后生效。',
+      modeManaged: '壳管模式',
+      modeReuse: '外部模式',
+      editingPath: '正在编辑：',
+      modeManagedHint: '服务由本应用启动并接管：全局指令与身份 / Persona 均即时生效（改身份 / Persona 会自动重启接回会话）。',
+      modeReuseHint: '服务由外部启动：全局指令写入外部服务真实读取的 AGENTS.md（新会话生效）；身份 / Persona 改动需手动重启外部服务。',
+      usageTitle: '用量统计',
+      usageHint: '当前会话的用量汇总（DSH 官方统计口径）。',
+      usageRefresh: '刷新',
+      tokensTitle: 'Token',
+      tokensHint: '输入为计费口径（未缓存 + 缓存读 + 缓存写）；输出与缓存读写分开统计。',
+      inputLabel: '输入（未缓存）',
+      outputLabel: '输出',
+      cacheReadLabel: '缓存读取',
+      cacheWriteLabel: '缓存写入',
+      cacheHitLabel: '缓存命中率',
+      timeTitle: '耗时',
+      timeHint: '墙钟时间：LLM 生成与工具执行的合计，以及首 token 与解码速度。',
+      llmLabel: 'LLM 总时长',
+      toolLabel: '工具总时长',
+      ttftLabel: '平均首 token',
+      decodeLabel: '解码速度',
+      activityTitle: '活动',
+      activityHint: '轮次 = 用户消息轮数；步数 = agent 执行的步数。',
+      turnsLabel: '轮次',
+      stepsLabel: '步数',
+      usageLoading: '正在读取用量…',
+      usageFailed: '读取失败：',
+      usageNone: '暂无用量数据。',
+      usageSession: '会话：',
     },
     en: {
       title: 'Global prompt',
@@ -72,7 +101,36 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       saved: 'Saved. Global instructions sync automatically; identity & persona apply after a service restart.',
       savedRestart: 'Saved — restarting the service…',
       failed: 'Save failed: ',
-      reuse: 'Connected to an already-running service: the global prompt, identity and persona are all decided there, so these are read-only here.',
+      reuse: 'Connected to an already-running service: the global prompt is editable here (applies to new sessions); identity and persona changes take effect after a restart.',
+      modeManaged: 'Shell-managed',
+      modeReuse: 'External',
+      editingPath: 'Editing: ',
+      modeManagedHint: 'The service is started and managed by this app: global prompt and identity/persona all apply immediately (changing identity/persona auto-restarts and reattaches your session).',
+      modeReuseHint: 'The service was started externally: the global prompt writes to the AGENTS.md that external service actually reads (applies to new sessions); identity/persona changes need a manual restart of the external service.',
+      usageTitle: 'Usage',
+      usageHint: 'Usage totals for the current session (DSH official accounting).',
+      usageRefresh: 'Refresh',
+      tokensTitle: 'Tokens',
+      tokensHint: 'Input is billed (uncached + cache read + cache write); output and cache traffic are tracked separately.',
+      inputLabel: 'Input (uncached)',
+      outputLabel: 'Output',
+      cacheReadLabel: 'Cache read',
+      cacheWriteLabel: 'Cache write',
+      cacheHitLabel: 'Cache hit',
+      timeTitle: 'Time',
+      timeHint: 'Wall-clock totals for LLM generation and tool execution, plus first-token and decode throughput.',
+      llmLabel: 'LLM time',
+      toolLabel: 'Tool time',
+      ttftLabel: 'Avg first token',
+      decodeLabel: 'Decode speed',
+      activityTitle: 'Activity',
+      activityHint: 'Turns = user message turns; steps = agent steps executed.',
+      turnsLabel: 'Turns',
+      stepsLabel: 'Steps',
+      usageLoading: 'Loading usage…',
+      usageFailed: 'Failed: ',
+      usageNone: 'No usage data yet.',
+      usageSession: 'Session: ',
     },
   };
   var T = function (key) { return STR[LANG][key]; };
@@ -108,7 +166,21 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     '#dsh-gp-section .dsh-gp-status.err{color:var(--dsw-alias-state-error-primary,#d98678);}' +
     '#dsh-gp-section .dsh-gp-banner{margin:0 0 12px;padding:8px 12px;border-radius:9px;' +
     'border:1px solid var(--dsw-alias-border-l2,#393836);background:var(--dsw-alias-bg-layer-2,#1c1b1a);' +
-    'color:var(--dsw-alias-label-secondary,#b6b4ab);font-size:13px;}';
+    'color:var(--dsw-alias-label-secondary,#b6b4ab);font-size:13px;}' +
+    '#dsh-gp-section .dsh-gp-mode{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;' +
+    'font-weight:600;line-height:18px;margin:0 0 8px;border:1px solid transparent;}' +
+    '#dsh-gp-section .dsh-gp-mode--managed{color:#3fb37a;background:rgba(63,179,122,0.12);border-color:rgba(63,179,122,0.35);}' +
+    '#dsh-gp-section .dsh-gp-mode--reuse{color:#d98678;background:rgba(217,134,120,0.12);border-color:rgba(217,134,120,0.35);}' +
+    '#dsh-gp-section .dsh-gp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px;margin:0 0 10px;}' +
+    '#dsh-gp-section .dsh-gp-stat{background:var(--dsw-alias-bg-layer-2,#1c1b1a);border:1px solid var(--dsw-alias-border-l2,#393836);' +
+    'border-radius:9px;padding:12px 12px 10px;min-width:0;}' +
+    '#dsh-gp-section .dsh-gp-stat .dsh-gp-k{display:block;font-size:12px;color:var(--dsw-alias-label-secondary,#b6b4ab);' +
+    'margin-bottom:4px;overflow-wrap:anywhere;}' +
+    '#dsh-gp-section .dsh-gp-stat .dsh-gp-v{display:block;font-size:20px;font-weight:600;line-height:1.2;' +
+    'font-variant-numeric:tabular-nums;}' +
+    '#dsh-gp-section .dsh-gp-stat .dsh-gp-v--accent{color:var(--dsw-alias-brand-primary,#edb449);}' +
+    '#dsh-gp-section .dsh-gp-session{font:12px ui-monospace,Consolas,monospace;color:var(--dsw-alias-label-secondary,#b6b4ab);' +
+    'display:block;margin:0 0 10px;overflow-wrap:anywhere;}';
   if (!document.getElementById('dsh-gp-style')) {
     style.id = 'dsh-gp-style';
     document.head.appendChild(style);
@@ -118,14 +190,15 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
   var rows = [];
 
   // DSH 导航/行内图标同款约定：16×16、fill=none、stroke=currentColor 1.25、圆头
+  var ICON_D = {
+    power: '<path d="M8 2v6"/><path d="M12.5 5.5a6 6 0 1 1-9 0"/>',
+    folder: '<path d="M2.5 4.5h4l1.5 2h5.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-7a.5.5 0 0 1 .5-.5Z"/>',
+    bell: '<path d="M8 3a3.5 3.5 0 0 1 3.5 3.5c0 2.5 1 3.5 1.5 4H3c.5-.5 1.5-1.5 1.5-4A3.5 3.5 0 0 1 8 3Z"/><path d="M7 13a1.5 1.5 0 0 0 2 0"/>',
+    doc: '<path d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M5 6.5h6M5 9.5h6M5 12.5h3"/>',
+    chart: '<path d="M3 13.5h10"/><path d="M5 13.5V9.5"/><path d="M8 13.5V5.5"/><path d="M11 13.5V7.5"/><path d="M14 13.5V3.5"/>',
+  };
   var ICON = function (kind) {
-    var d = {
-      power: '<path d="M8 2v6"/><path d="M12.5 5.5a6 6 0 1 1-9 0"/>',
-      folder: '<path d="M2.5 4.5h4l1.5 2h5.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-7a.5.5 0 0 1 .5-.5Z"/>',
-      bell: '<path d="M8 3a3.5 3.5 0 0 1 3.5 3.5c0 2.5 1 3.5 1.5 4H3c.5-.5 1.5-1.5 1.5-4A3.5 3.5 0 0 1 8 3Z"/><path d="M7 13a1.5 1.5 0 0 0 2 0"/>',
-      doc: '<path d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M5 6.5h6M5 9.5h6M5 12.5h3"/>',
-    }[kind] || '';
-    return '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+    return '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICON_D[kind] || '') + '</svg>';
   };
 
   function webPersona() {
@@ -173,15 +246,23 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       document.getElementById('dsh-gp-persona-toggle').checked = persona.trim() !== '';
       document.getElementById('dsh-gp-persona').value = persona || webPersona();
       document.getElementById('dsh-gp-notify').checked = state.notifyResult !== false;
+      var modeEl = document.getElementById('dsh-gp-mode');
+      var modeHintEl = document.getElementById('dsh-gp-mode-hint');
       if (state.mode === 'managed') {
+        modeEl.textContent = '🟢 ' + T('modeManaged');
+        modeEl.className = 'dsh-gp-mode dsh-gp-mode--managed';
+        if (modeHintEl) modeHintEl.textContent = T('modeManagedHint');
         document.getElementById('dsh-gp-global').value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
-        document.getElementById('dsh-gp-path').textContent = state.globalPromptPath || '';
+        document.getElementById('dsh-gp-path').textContent = state.globalPromptPath ? T('editingPath') + state.globalPromptPath : '';
       } else {
+        modeEl.textContent = '🔴 ' + T('modeReuse');
+        modeEl.className = 'dsh-gp-mode dsh-gp-mode--reuse';
+        if (modeHintEl) modeHintEl.textContent = T('modeReuseHint');
+        // 复用外部服务：全局指令可编辑（落到外部服务真实读的 AGENTS.md）；身份/persona 也放开（保存后提示需重启）
+        document.getElementById('dsh-gp-global').value = typeof state.globalPrompt === 'string' ? state.globalPrompt : '';
+        document.getElementById('dsh-gp-path').textContent = state.globalPromptPath ? T('editingPath') + state.globalPromptPath : '';
         document.getElementById('dsh-gp-banner').style.display = '';
-        document.getElementById('dsh-gp-path').textContent = '';
-        var dis = [document.getElementById('dsh-gp-global'), document.getElementById('dsh-gp-identity'), document.getElementById('dsh-gp-persona-toggle'), document.getElementById('dsh-gp-persona')];
-        dis.forEach(function (n) { if (n) n.disabled = true; });
-        // 外部服务模式不接管：禁用重启按钮（与独立设置页一致，避免误导）
+        // 外部服务模式不接管重启：禁用重启按钮（身份/persona 保存只提示"需重启"，不强行重启别人的服务）
         var restartBtn = document.getElementById('dsh-gp-save-restart');
         if (restartBtn) restartBtn.disabled = true;
       }
@@ -225,6 +306,8 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
   function sectionMarkup() {
     return '' +
       '<h2>' + T('globalTitle') + '</h2>' +
+      '<span class="dsh-gp-mode" id="dsh-gp-mode"></span>' +
+      '<p class="dsh-gp-hint" id="dsh-gp-mode-hint"></p>' +
       '<p class="dsh-gp-hint">' + T('globalHint') + '</p>' +
       '<div class="dsh-gp-banner" id="dsh-gp-banner" style="display:none">' + T('reuse') + '</div>' +
       '<p class="dsh-gp-path" id="dsh-gp-path"></p>' +
@@ -273,6 +356,116 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     fill();
   }
 
+  // ---- 用量统计（ZCode 式，数据 = DSH session.history 的 host 投影汇总）----
+  function fmtTokens(n) {
+    function scaled(v) { return v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10); }
+    if (n < 1000) return String(n);
+    if (n < 1000000) return scaled(n / 1000) + 'K';
+    return scaled(n / 1000000) + 'M';
+  }
+  function fmtDuration(ms) {
+    var s = ms / 1000;
+    if (s < 60) return Math.round(s * 10) / 10 + 's';
+    var whole = Math.round(s);
+    return Math.floor(whole / 60) + 'm' + (whole % 60) + 's';
+  }
+  function setUsage(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function usageMarkup() {
+    return '' +
+      '<h2>' + T('usageTitle') + '</h2>' +
+      '<p class="dsh-gp-hint">' + T('usageHint') + '</p>' +
+      '<p><button class="dsh-gp-btn dsh-gp-ghost" id="dsh-gp-usage-refresh" type="button">' + T('usageRefresh') + '</button></p>' +
+      '<span class="dsh-gp-session" id="dsh-gp-usage-session"></span>' +
+      '<h3>' + ICON('chart') + T('tokensTitle') + '</h3>' +
+      '<p class="dsh-gp-hint">' + T('tokensHint') + '</p>' +
+      '<div class="dsh-gp-grid">' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('inputLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-input">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('outputLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-output">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('cacheReadLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-cache-read">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('cacheWriteLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-cache-write">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('cacheHitLabel') + '</span><span class="dsh-gp-v dsh-gp-v--accent" id="dsh-gp-usage-cache-hit">–</span></div>' +
+      '</div>' +
+      '<h3>' + ICON('chart') + T('timeTitle') + '</h3>' +
+      '<p class="dsh-gp-hint">' + T('timeHint') + '</p>' +
+      '<div class="dsh-gp-grid">' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('llmLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-llm">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('toolLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-tool">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('ttftLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-ttft">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('decodeLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-decode">–</span></div>' +
+      '</div>' +
+      '<h3>' + ICON('chart') + T('activityTitle') + '</h3>' +
+      '<p class="dsh-gp-hint">' + T('activityHint') + '</p>' +
+      '<div class="dsh-gp-grid">' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('turnsLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-turns">–</span></div>' +
+      '<div class="dsh-gp-stat"><span class="dsh-gp-k">' + T('stepsLabel') + '</span><span class="dsh-gp-v" id="dsh-gp-usage-steps">–</span></div>' +
+      '</div>' +
+      '<span class="dsh-gp-status" id="dsh-gp-usage-status"></span>';
+  }
+
+  async function fillUsage() {
+    if (!shell || !document.getElementById('dsh-gp-usage-section')) return;
+    setStatus('dsh-gp-usage-status', T('usageLoading'), false);
+    try {
+      var r = await shell.getSessionUsage();
+      if (!r || !r.ok) {
+        setStatus('dsh-gp-usage-status', (r && r.message) || T('usageFailed') + T('usageNone'), true);
+        return;
+      }
+      var u = r.usage || {};
+      var billed = (u.uncachedInputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheWriteTokens || 0);
+      var hit = billed === 0 ? null : Math.round(((u.cacheReadTokens || 0) / billed) * 100);
+      var ttftSteps = u.ttftSteps || 0;
+      var avgTtft = ttftSteps === 0 ? null : (u.ttftMs || 0) / ttftSteps;
+      var decodeSpeed = u.decodeMs > 0 && u.decodeTokens > 0
+        ? Math.round((u.decodeTokens / (u.decodeMs / 1000)) * 10) / 10
+        : null;
+      setUsage('dsh-gp-usage-session', r.title ? T('usageSession') + r.title : '');
+      setUsage('dsh-gp-usage-input', fmtTokens(u.uncachedInputTokens || 0));
+      setUsage('dsh-gp-usage-output', fmtTokens(u.outputTokens || 0));
+      setUsage('dsh-gp-usage-cache-read', fmtTokens(u.cacheReadTokens || 0));
+      setUsage('dsh-gp-usage-cache-write', fmtTokens(u.cacheWriteTokens || 0));
+      setUsage('dsh-gp-usage-cache-hit', hit === null ? '–' : hit + '%');
+      setUsage('dsh-gp-usage-llm', fmtDuration(u.llmMs || 0));
+      setUsage('dsh-gp-usage-tool', fmtDuration(u.toolMs || 0));
+      setUsage('dsh-gp-usage-ttft', avgTtft === null ? '–' : Math.round(avgTtft / 100) / 10 + 's');
+      setUsage('dsh-gp-usage-decode', decodeSpeed === null ? '–' : decodeSpeed + ' t/s');
+      setUsage('dsh-gp-usage-turns', String(u.turns || 0));
+      setUsage('dsh-gp-usage-steps', String(u.steps || 0));
+      setStatus('dsh-gp-usage-status', '', false);
+    } catch (e) {
+      setStatus('dsh-gp-usage-status', T('usageFailed') + String(e), true);
+    }
+  }
+
+  function wireUsage() {
+    document.getElementById('dsh-gp-usage-refresh').addEventListener('click', fillUsage);
+    fillUsage();
+  }
+
+  function makeNavCell(navBtn, id, titleKey, iconInner) {
+    var cell = navBtn.cloneNode(true);
+    cell.id = id;
+    cell.className = cell.className.split(/\\s+/).filter(function (c) { return !/active/i.test(c); }).join(' ');
+    var cellSvg = cell.querySelector('svg');
+    if (cellSvg) {
+      cellSvg.setAttribute('viewBox', '0 0 16 16');
+      cellSvg.setAttribute('fill', 'none');
+      cellSvg.setAttribute('stroke', 'currentColor');
+      cellSvg.setAttribute('stroke-width', '1.25');
+      cellSvg.setAttribute('stroke-linecap', 'round');
+      cellSvg.setAttribute('stroke-linejoin', 'round');
+      cellSvg.innerHTML = iconInner;
+    }
+    var label = cell.querySelector('span');
+    if (label) label.textContent = T(titleKey);
+    else cell.textContent = T(titleKey);
+    return cell;
+  }
+
   function attach() {
     var navBtn = Array.prototype.slice.call(document.querySelectorAll('button')).find(function (b) {
       return /通用设置|General/.test(b.textContent || '');
@@ -285,24 +478,11 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     if (!panelRoot || !content || document.getElementById('dsh-gp-nav')) return;
 
     // 克隆导航格（保 DSH 原生样式），去掉激活类，换我们的标题与图标
-    var cell = navBtn.cloneNode(true);
-    cell.id = 'dsh-gp-nav';
-    cell.className = cell.className.split(/\\s+/).filter(function (c) { return !/active/i.test(c); }).join(' ');
-    var cellSvg = cell.querySelector('svg');
-    if (cellSvg) {
-      cellSvg.setAttribute('viewBox', '0 0 16 16');
-      cellSvg.setAttribute('fill', 'none');
-      cellSvg.setAttribute('stroke', 'currentColor');
-      cellSvg.setAttribute('stroke-width', '1.25');
-      cellSvg.setAttribute('stroke-linecap', 'round');
-      cellSvg.setAttribute('stroke-linejoin', 'round');
-      cellSvg.innerHTML = '<path d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M5 6.5h6M5 9.5h6M5 12.5h3"/>';
-    }
-    var label = cell.querySelector('span');
-    if (label) label.textContent = T('title');
-    else cell.textContent = T('title');
-    // 紧跟在"通用设置"之后（第二个位置），比排在最后更显眼
+    var cell = makeNavCell(navBtn, 'dsh-gp-nav', 'title', ICON_D.doc);
+    var usageCell = makeNavCell(navBtn, 'dsh-gp-usage-nav', 'usageTitle', ICON_D.chart);
+    // 紧跟在"通用设置"之后（第 2、3 位），比排在最后更显眼
     navList.insertBefore(cell, navList.children[1] || null);
+    navList.insertBefore(usageCell, navList.children[2] || null);
 
     // 内容区 = nav 之后的兄弟（.content = .header 关闭钮 + .options 滚动区）。
     // 面板挂进 .content（.options 之后）而非 .panel：.panel 是 overflow:hidden 定高，
@@ -316,19 +496,31 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     content.appendChild(section);
     wire();
 
-    cell.addEventListener('click', function () {
+    var usageSection = document.createElement('div');
+    usageSection.id = 'dsh-gp-usage-section';
+    usageSection.style.display = 'none';
+    usageSection.innerHTML = usageMarkup();
+    content.appendChild(usageSection);
+    wireUsage();
+
+    function showSection(target) {
       if (options) options.style.display = 'none';
-      section.style.display = '';
+      section.style.display = target === section ? '' : 'none';
+      usageSection.style.display = target === usageSection ? '' : 'none';
       Array.prototype.forEach.call(navList.children, function (c) {
         c.className = c.className.split(/\\s+/).filter(function (x) { return !/active/i.test(x); }).join(' ');
       });
-      cell.className += ' ' + (navBtn.className.split(/\\s+/).find(function (x) { return /active/i.test(x); }) || '');
-    });
+      var activeCls = navBtn.className.split(/\\s+/).find(function (x) { return /active/i.test(x); }) || '';
+      (target === section ? cell : usageCell).className += ' ' + activeCls;
+    }
+    cell.addEventListener('click', function () { showSection(section); });
+    usageCell.addEventListener('click', function () { showSection(usageSection); });
     Array.prototype.forEach.call(navList.children, function (c) {
-      if (c === cell) return;
+      if (c === cell || c === usageCell) return;
       c.addEventListener('click', function () {
         if (options) options.style.display = '';
         section.style.display = 'none';
+        usageSection.style.display = 'none';
       });
     });
   }
