@@ -620,8 +620,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
       type: 'question',
       title: '要用哪个 DeepSeek Harness？',
       message: '检测到你电脑上已经装了一份。',
-      detail: '「用已装的」直接开始；「下载新的」会下载一份到本应用目录。',
-      buttons: ['用已装的', '下载新的到本应用目录'],
+      detail: '「用已装的」直接开始；「下载新的」会下载一份到本应用目录；也可以手动选择已有的安装目录。',
+      buttons: ['用已装的', '下载新的到本应用目录', '选择其他目录'],
       defaultId: 0,
       cancelId: 0,
     });
@@ -631,11 +631,35 @@ async function startShell(win: BrowserWindow): Promise<void> {
       config2.dshChoice = 'existing';
       store2.save(config2);
       writeLog('shell', 'user chose to reuse existing dsh');
-    } else {
+    } else if (response === 1) {
       config2.dshChoice = 'download';
       store2.save(config2);
       writeLog('shell', 'user chose to download a fresh dsh');
       return loadInstallWizard(win);
+    } else {
+      // 选择其他目录：打开目录选择器，验证后存 installDir 并重跑启动序列
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: '选择已有的 DeepSeek Harness 目录',
+        properties: ['openDirectory'],
+      });
+      if (canceled || filePaths.length === 0) return;
+      const dir = filePaths[0] ?? '';
+      const entry = dshEntryJsPath(dir);
+      if (!existsSync(entry)) {
+        await dialog.showMessageBox(win, {
+          type: 'error',
+          title: '没找到 DeepSeek Harness',
+          message: '这个目录里没有 DeepSeek Harness。请选择包含 node_modules/@deepseek-ai/dsh 的目录。',
+        });
+        return loadInstallWizard(win);
+      }
+      const store3 = getStore();
+      const config3 = store3.load();
+      config3.installDir = dir;
+      config3.dshChoice = 'existing';
+      store3.save(config3);
+      writeLog('shell', `manual dsh dir selected: ${dir}`);
+      return startShell(win);
     }
   }
 
@@ -665,9 +689,42 @@ async function startShell(win: BrowserWindow): Promise<void> {
   switch (gate.kind) {
     case 'guide':
       if (gate.guidance === 'dsh-missing') {
-        // 未检测到 DSH → 进安装向导（ask 步骤含"下载安装 + 需要联网"告知，用户点开始才下载）
+        // 未检测到 DSH → 弹窗给选择：下载新的 / 选择已有目录（不强制下载）
         emitServiceStatus(win, 'stopped', '未检测到 DeepSeek Harness，需要先安装');
-        return loadInstallWizard(win);
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'question',
+          title: '需要 DeepSeek Harness',
+          message: '没有检测到 DeepSeek Harness。',
+          detail: '「下载新的」自动下载到本应用目录（需联网）；若你已在别处安装，可选「选择已有目录」指向它。',
+          buttons: ['下载新的', '选择已有目录'],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (response === 0) {
+          return loadInstallWizard(win);
+        }
+        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+          title: '选择已有的 DeepSeek Harness 目录',
+          properties: ['openDirectory'],
+        });
+        if (canceled || filePaths.length === 0) return;
+        const dir = filePaths[0] ?? '';
+        const entry = dshEntryJsPath(dir);
+        if (!existsSync(entry)) {
+          await dialog.showMessageBox(win, {
+            type: 'error',
+            title: '没找到 DeepSeek Harness',
+            message: '这个目录里没有 DeepSeek Harness。请选择包含 node_modules/@deepseek-ai/dsh 的目录。',
+          });
+          return loadInstallWizard(win);
+        }
+        const storeMissing = getStore();
+        const configMissing = storeMissing.load();
+        configMissing.installDir = dir;
+        configMissing.dshChoice = 'existing';
+        storeMissing.save(configMissing);
+        writeLog('shell', `manual dsh dir selected: ${dir}`);
+        return startShell(win);
       }
       emitServiceStatus(win, 'failed', '缺少可用的 Node.js');
       return loadGuide(win, gate.guidance);
@@ -1188,6 +1245,32 @@ const shellOps: ShellOps = {
     if (canceled || filePaths.length === 0) return '';
     void runInstallFlow(win, filePaths[0] ?? '');
     return filePaths[0] ?? '';
+  },
+  selectDshDir: async () => {
+    // 手动选择已有 dsh 目录（npm 安装版）：用户把 dsh 装在了任意自定义路径时，手动指给壳
+    const win = mainWindow ?? createWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: '选择已有的 DeepSeek Harness 目录',
+      properties: ['openDirectory'],
+    });
+    if (canceled || filePaths.length === 0) return { ok: false, message: '已取消。' };
+    const dir = filePaths[0] ?? '';
+    // 验证目录里有 npm 安装版的 dsh 入口（node_modules/@deepseek-ai/dsh/lib/bin.js）
+    const entry = dshEntryJsPath(dir);
+    if (!existsSync(entry)) {
+      return {
+        ok: false,
+        message: '这个目录里没找到 DeepSeek Harness。请选择包含 node_modules/@deepseek-ai/dsh 的目录。',
+      };
+    }
+    const store = getStore();
+    const config = store.load();
+    config.installDir = dir;
+    config.dshChoice = 'existing';
+    store.save(config);
+    writeLog('shell', `manual dsh dir selected: ${dir}`);
+    await startShell(win);
+    return { ok: true, message: '已使用所选目录的 DeepSeek Harness。' };
   },
   testConnection: (config) => testConnection(config),
   discoverModels: (input) => discoverModels(input),

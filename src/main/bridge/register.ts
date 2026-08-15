@@ -47,6 +47,8 @@ export interface ShellOps {
   startInstall(): Promise<void>;
   /** 安装向导：弹目录选择器；返回所选路径（取消返回 ''），选定后壳接续安装流程 */
   pickDir(): Promise<string>;
+  /** 手动选择已有 dsh 目录（npm 安装版）：验证目录含 dsh 入口后存 installDir 并重跑启动序列 */
+  selectDshDir(): Promise<{ ok: boolean; message?: string }>;
   /** 首启向导：测试连接（[FR-30.7] 手工路径） */
   testConnection(config: ConnectionConfig): Promise<ConnectionResult>;
   /** 首启向导：保存连接（调 DSH 服务 settings/credentials API） */
@@ -101,6 +103,8 @@ export function registerBridge(ops: ShellOps): void {
   ipcMain.handle(BRIDGE_API.startInstall, () => ops.startInstall());
 
   ipcMain.handle(BRIDGE_API.pickDir, () => ops.pickDir());
+
+  ipcMain.handle(BRIDGE_API.selectDshDir, () => ops.selectDshDir());
 
   ipcMain.handle(BRIDGE_API.testConnection, (_event, raw: unknown) => {
     const config = parseConnectionConfig(raw);

@@ -196,6 +196,7 @@ export const BRIDGE_API = {
   // ---- 安装向导 ----
   startInstall: 'dsh:startInstall',
   pickDir: 'dsh:pickDir',
+  selectDshDir: 'dsh:selectDshDir',
   // ---- 首启向导（AI 接入） ----
   testConnection: 'dsh:testConnection',
   saveConnection: 'dsh:saveConnection',
