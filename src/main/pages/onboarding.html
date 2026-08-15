@@ -198,6 +198,10 @@
           errUrl: 'API 地址要以 http:// 或 https:// 开头。',
           errKey: '请填写 API 密钥。',
           errModel: '请填写模型名。',
+          testFailed: '测试连接失败：',
+          fetchFailed: '获取模型失败：',
+          saved: '已保存，马上生效。',
+          saveFailed: '保存失败：',
           welcome: {
             title: '欢迎使用 deepseek-harness-starter',
             lede: '它让 DeepSeek 的 AI 能力常驻在你的电脑里，随时待命。先花一分钟完成接入设置。',
@@ -230,6 +234,10 @@
           errUrl: 'The API address must start with http:// or https://.',
           errKey: 'Please enter your API key.',
           errModel: 'Please enter a model name.',
+          testFailed: 'Connection test failed: ',
+          fetchFailed: 'Fetching models failed: ',
+          saved: 'Saved — applied right away.',
+          saveFailed: 'Save failed: ',
           welcome: {
             title: 'Welcome to deepseek-harness-starter',
             lede: 'It keeps DeepSeek AI at hand on your computer. Take a minute to set up the connection.',
@@ -387,8 +395,9 @@
           Promise.resolve(shell.testConnection(cfg))
             .then((res) => {
               if (res && typeof res === 'object') showMsg(res.ok ? 'ok' : 'err', res.message || '');
+              else showMsg('err', t.errModel);
             })
-            .catch(() => undefined)
+            .catch((e) => { showMsg('err', t.testFailed + (e && e.message ? e.message : '')); })
             .finally(() => { b.disabled = false; saveBtn.disabled = false; el.status.textContent = ''; });
         });
 
@@ -425,7 +434,7 @@
                 showMsg('err', (res && res.message) || t.errModel);
               }
             })
-            .catch(() => undefined)
+            .catch((e) => { showMsg('err', t.fetchFailed + (e && e.message ? e.message : '')); })
             .finally(() => { b.disabled = false; el.status.textContent = ''; });
         });
 
@@ -440,12 +449,16 @@
           const payload = fetchedModels.length > 0 ? { ...cfg, models: fetchedModels } : cfg;
           Promise.resolve(shell.saveConnection(payload))
             .then((res) => {
-              // 失败留在本步并展示原因（[FR-21.3] 错误即指引），成功才进入演示步
-              if (res && res.ok) { goStep('demo'); return; }
+              // 失败留在本步并展示原因（[FR-21.3] 错误即指引），成功先给明确反馈再进演示步
+              if (res && res.ok) {
+                showMsg('ok', t.saved);
+                setTimeout(() => goStep('demo'), 600);
+                return;
+              }
               if (res && res.message) { showMsg('err', res.message); return; }
               showMsg('err', t.errModel);
             })
-            .catch(() => undefined)
+            .catch((e) => { showMsg('err', t.saveFailed + (e && e.message ? e.message : '')); })
             .finally(() => { b.disabled = false; testBtn.disabled = false; el.status.textContent = ''; });
         });
 
