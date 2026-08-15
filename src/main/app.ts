@@ -669,9 +669,29 @@ async function startShell(win: BrowserWindow): Promise<void> {
     }
   }
 
+  // 先杀掉旧的壳服务（若有）：否则它占着记住的端口，每次重启都会被探测成"别人的 dsh"而漂到新端口
+  let killedOldService = false;
+  if (serviceProcess && !serviceProcess.killed) {
+    try {
+      serviceProcess.kill();
+    } catch {
+      // 旧进程可能已退出
+    }
+    serviceProcess = null;
+    killedOldService = true;
+  }
+
   emitServiceStatus(win, 'probing', '正在检查服务…');
   let port = config.port ?? 3080;
-  const probe = await probePort(port);
+  let probe = await probePort(port);
+  // 刚杀的旧服务释放端口要一点时间；等它（最多 ~3s），避免把"自己的旧服务"误判成别人的 dsh 而漂端口
+  if (killedOldService && probe !== 'free') {
+    for (let i = 0; i < 6; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      probe = await probePort(port);
+      if (probe === 'free') break;
+    }
+  }
   let decision = decidePort(probe, { remembered: config.port });
   // managed 模式：端口上是别人的 dsh → 自动换空闲端口（不弹窗），逐个探测候选直到找到空闲
   if (decision.action === 'next-free') {
@@ -748,15 +768,6 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // spawn（managed 模式：persona 经 home patch `$DSH_HOME/cordis.patch.yml` 注入，热重载即生效，
   // 无需 --patch；$DSH_HOME 统一指向壳自己的 dsh-home，保证提示词/persona 一定被服务读到）
   emitServiceStatus(win, 'starting', '正在启动服务…');
-  // 杀掉旧的壳服务进程（若有），避免服务堆积：端口切换/自愈/重启都只保留最新一个实例
-  if (serviceProcess && !serviceProcess.killed) {
-    try {
-      serviceProcess.kill();
-    } catch {
-      // 旧进程可能已退出
-    }
-    serviceProcess = null;
-  }
   const usingInstalled =
     process.env.DSH_COMMAND === undefined && existsSync(installedBin);
   let spec: SpawnSpec;
@@ -791,8 +802,26 @@ async function startShell(win: BrowserWindow): Promise<void> {
   serviceProcess = child;
 
   let ready = false;
+  let probeTimer: NodeJS.Timeout | null = null;
   const readyPromise = new Promise<void>((resolve, reject) => {
     let buffer = '';
+    const markReady = (): void => {
+      if (ready) return;
+      ready = true;
+      if (probeTimer) {
+        clearInterval(probeTimer);
+        probeTimer = null;
+      }
+      resolve();
+    };
+    const fail = (error: Error): void => {
+      if (ready) return;
+      if (probeTimer) {
+        clearInterval(probeTimer);
+        probeTimer = null;
+      }
+      reject(error);
+    };
     child.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       writeLog('service', text);
@@ -802,26 +831,42 @@ async function startShell(win: BrowserWindow): Promise<void> {
       for (const line of lines) {
         const parsed = parseReadyUrlLine(line);
         if (parsed && parsed.port === port) {
-          ready = true;
-          resolve();
+          markReady();
           return;
         }
       }
     });
     child.stderr?.on('data', (chunk: Buffer) => writeLog('service', chunk.toString()));
     child.on('exit', (code) => {
-      if (!ready) reject(new Error(`dsh exited with code ${code}`));
+      if (!ready) fail(new Error(`dsh exited with code ${code}`));
       serviceProcess = null;
       emitServiceStatus(win, 'stopped', '服务已停止');
       updateTrayState();
       // 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避自动重启；启动期崩溃走上面的 reject
       if (ready && !quitting) scheduleServiceRestart(win);
     });
+    // 端口就绪兜底：服务可能早就监听并响应了，但 ready URL 行晚到/被截断 → 直接探端口，更快更可靠。
+    // 只要端口上能取到 DSH 首页（__DSH_BOOT__）就视为就绪。
+    probeTimer = setInterval(() => {
+      if (ready) return;
+      void probePort(port)
+        .then((p) => {
+          if (p === 'dsh') markReady();
+        })
+        .catch(() => undefined);
+    }, 500);
+    // 冷启动（首次建 dsh-home 要下载/链接 profiles 依赖）可能超过 90s，但服务仍在跑、只是慢，
+    // 所以 90s 不判失败，只提示"仍在启动"，继续靠端口探测兜底；只有进程真的退出才判失败。
+    // 硬上限 5 分钟（真卡死才失败），避免"上来报失败、过一会又恢复"的误报。
     setTimeout(() => {
-      if (!ready) reject(new Error('readiness timeout'));
-      // 首次启动（首次建 dsh-home 要下载/链接 profiles 依赖）可能超过 30s，
-      // 放宽到 90s 防误判；服务就绪慢≠失败，reject 后服务进程仍在、下次探测会复用
+      if (!ready) {
+        writeLog('shell', `service still starting after 90s (port ${port}), keep probing`);
+        emitServiceStatus(win, 'starting', '服务仍在启动中，请稍候…');
+      }
     }, 90_000);
+    setTimeout(() => {
+      if (!ready) fail(new Error('readiness timeout (5 min)'));
+    }, 300_000);
   });
 
   try {
@@ -1242,6 +1287,10 @@ const shellOps: ShellOps = {
     writeLog('shell', 'openMain op called');
     const win = mainWindow ?? createWindow();
     void loadMain(win);
+  },
+  checkForUpdates: () => {
+    writeLog('shell', 'checkForUpdates op called');
+    checkForUpdatesManually();
   },
   choosePort: async (port) => {
     const store = getStore();

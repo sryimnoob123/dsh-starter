@@ -16,12 +16,16 @@ export const DESKTOP_CSS =
   + '::-webkit-scrollbar-track{background:transparent;}'
   + '::-webkit-scrollbar-corner{background:transparent;}';
 
-/** 右上角悬浮窗口按钮（用户拍板：删除标题栏，原窗口按钮直接放右上角；设置入口在 DSH 官方设置内） */
+/** 右上角悬浮窗口按钮（用户拍板：删除标题栏，原窗口按钮直接放右上角；设置入口在 DSH 官方设置内）。
+ *  新增"检查更新"按钮（[D78]，OpenChamber 风格图标）：点击即走自动更新（检查→自动下载→用户确认安装）。 */
 export const FLOATING_CONTROLS_SCRIPT = `(function () {
   if (document.getElementById('dsh-float-controls')) return;
   var box = document.createElement('div');
   box.id = 'dsh-float-controls';
   box.innerHTML =
+    '<button data-act="check-update" title="\\u68c0\\u67e5\\u66f4\\u65b0">' +
+      '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5V6H10"/></svg>' +
+    '</button>' +
     '<button data-act="minimize" title="\\u6700\\u5c0f\\u5316">\\u2013</button>' +
     '<button data-act="toggle-maximize" title="\\u6700\\u5927\\u5316/\\u8fd8\\u539f">\\u25a1</button>' +
     '<button data-act="close" title="\\u5173\\u95ed\\uff08\\u7f29\\u5230\\u6258\\u76d8\\uff09">\\u00d7</button>';
@@ -33,6 +37,7 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
     '#dsh-float-controls button{all:unset;width:32px;height:24px;text-align:center;cursor:default;' +
     'font:400 13px/24px system-ui,"Segoe UI",sans-serif;color:var(--dsh-desktop-titlebar-fg,oklch(85% .02 90));' +
     'border-radius:6px;background:transparent;}' +
+    '#dsh-float-controls button[data-act="check-update"]{display:flex;align-items:center;justify-content:center;cursor:pointer;}' +
     '#dsh-float-controls button:hover{background:var(--dsh-desktop-titlebar-hover,oklch(29% .01 40));}' +
     '#dsh-float-controls button[data-act="close"]:hover{background:var(--dsh-desktop-titlebar-close-hover,oklch(65% .15 30));}';
   document.head.appendChild(style);
@@ -40,7 +45,11 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
     b.addEventListener('click', function () {
       var w = window.dshShell;
       if (!w) return;
-      try { if (w.windowControl) w.windowControl(b.getAttribute('data-act')); } catch (e) { /* 忽略 */ }
+      var act = b.getAttribute('data-act');
+      try {
+        if (act === 'check-update') { if (w.checkForUpdates) w.checkForUpdates(); }
+        else if (w.windowControl) w.windowControl(act);
+      } catch (e) { /* 忽略 */ }
     });
   });
 })();`;
