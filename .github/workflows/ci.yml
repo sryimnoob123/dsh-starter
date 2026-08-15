@@ -8,7 +8,8 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # 本项目为 Windows 专属（NSIS 安装包 + 测试硬编码 Windows 路径分隔符）
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
