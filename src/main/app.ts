@@ -62,6 +62,7 @@ import {
 import { normalizeSessionUsage } from './usage/sessionUsage.js';
 import {
   buildDesktopPatchYaml,
+  externalAgentsPath,
   globalAgentsPath,
   normalizePromptConfig,
 } from './prompt/promptSettings.js';
@@ -1168,13 +1169,20 @@ const shellOps: ShellOps = {
     const uiTheme = currentUiTheme();
     const uiThemeResolved = resolveUiTheme();
     if (reuseMode) {
-      // 复用外部服务：路径由其环境决定，三项均不可接管（[D75] 显式提示，不静默）
+      // 复用外部服务：全局指令可编辑（落到外部服务真实读的 AGENTS.md）；身份/persona 需重启生效
+      const agentsPath = externalAgentsPath(config.dshHome);
+      let globalPrompt = '';
+      try {
+        globalPrompt = readFileSync(agentsPath, 'utf8');
+      } catch {
+        // 文件不存在 = 尚无全局指令
+      }
       return {
         mode: 'reuse',
         includeHarnessIdentity: prompt.includeHarnessIdentity,
         persona: prompt.persona,
-        globalPrompt: '',
-        globalPromptPath: null,
+        globalPrompt,
+        globalPromptPath: agentsPath,
         notifyResult,
         uiTheme,
         uiThemeResolved,
@@ -1219,19 +1227,34 @@ const shellOps: ShellOps = {
       writeLog('shell', `ui theme set to ${input.uiTheme} (resolved ${resolveUiTheme()})`);
     }
     if (reuseMode) {
-      return notifyChanged || input.uiTheme !== undefined
-        ? { ok: true, restarting: false, message: '已保存。通知开关与主题即时生效。' }
-        : {
-            ok: false,
-            restarting: false,
-            message:
-              '当前复用外部 DSH 服务：身份注入 / persona / 全局指令由该服务的环境决定，桌面端无法接管。' +
-              '如需接管：在原处停止外部服务，再回到桌面重新启动（会自动拉起自己的服务）。',
-          };
+      // 复用外部服务：全局指令可写（落到外部服务真实读的 AGENTS.md，新会话即生效）；
+      // 身份/persona 存进壳配置（当前外部服务用不上，重启/切壳管后生效）
+      const store = getStore();
+      const config = store.load();
+      try {
+        const agentsPath = externalAgentsPath(config.dshHome);
+        mkdirSync(dirname(agentsPath), { recursive: true });
+        writeFileSync(agentsPath, input.globalPrompt, 'utf8');
+        config.prompt = { includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona };
+        store.save(config);
+        writeLog('shell', `prompt settings saved (reuse) global=${agentsPath}`);
+      } catch (error) {
+        return { ok: false, restarting: false, message: `写入失败：${String(error)}` };
+      }
+      return {
+        ok: true,
+        restarting: false,
+        message: '已保存。全局指令新会话即生效；身份 / Persona 改动需重启服务后生效。',
+      };
     }
+    let personaChanged = false;
     try {
       const store = getStore();
       const config = store.load();
+      const oldPrompt = normalizePromptConfig(config.prompt);
+      personaChanged =
+        oldPrompt.includeHarnessIdentity !== input.includeHarnessIdentity ||
+        oldPrompt.persona !== input.persona;
       config.prompt = { includeHarnessIdentity: input.includeHarnessIdentity, persona: input.persona };
       store.save(config);
       const agentsPath = globalAgentsPath(app.getPath('userData'));
@@ -1250,15 +1273,16 @@ const shellOps: ShellOps = {
     } catch (error) {
       return { ok: false, restarting: false, message: `写入失败：${String(error)}` };
     }
-    if (input.restart) {
+    // 身份/persona 是启动时 patch 注入、运行中改不了（DSH 无运行时 API）→ 改了必须重启生效（会话自动接回）
+    if (personaChanged || input.restart) {
       const win = mainWindow;
       void restartService(win ?? createWindow());
-      return { ok: true, restarting: true, message: '设置已保存，正在重启服务…' };
+      return { ok: true, restarting: true, message: '已保存，正在重启服务（会话自动接回）…' };
     }
     return {
       ok: true,
       restarting: false,
-      message: '已保存。全局指令由 DSH 自动同步；身份注入与 persona 在服务重启后生效。',
+      message: '已保存。全局指令新会话即生效。',
     };
   },
   readNotifications: () => readNotificationHistory(app.getPath('userData'), 500),

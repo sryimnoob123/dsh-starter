@@ -56,6 +56,30 @@ describe('SETTINGS_EXTENSION_SCRIPT（DSH 官方设置扩展）', () => {
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.savePromptSettings(');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.listProjectInstructions()');
     expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.saveProjectInstruction(');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('shell.getSessionUsage()');
+  });
+
+  it('用量统计并入官方设置：第二导航格 + 数据卡标记 + 双语', () => {
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-nav');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-section');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("ICON('chart')");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("usageTitle: '用量统计'");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("usageTitle: 'Usage'");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-cache-hit');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-ttft');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-usage-refresh');
+  });
+
+  it('生效状态徽标：壳管模式（🟢）/ 外部模式（🔴）+ 双语', () => {
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('dsh-gp-mode');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("modeManaged: '壳管模式'");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("modeManaged: 'Shell-managed'");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("modeReuse: '外部模式'");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('state.mode === \'managed\'');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('🟢');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain('🔴');
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("editingPath: '正在编辑：'");
+    expect(SETTINGS_EXTENSION_SCRIPT).toContain("editingPath: 'Editing: '");
   });
 
   it('双兜底重挂载（DSH 事件流重渲染弹窗会重建）', () => {

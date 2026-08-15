@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 /**
  * FR-16 提示词管理（V1 壳侧面板逻辑，纯函数便于测试）。
@@ -82,4 +83,15 @@ export function desktopDshHome(userDataDir: string): string {
 /** 全局指令文件路径（[FR-16.7]：GUI 编辑 = 全局注入，所见即所注入） */
 export function globalAgentsPath(userDataDir: string): string {
   return join(desktopDshHome(userDataDir), 'AGENTS.md');
+}
+
+/** 复用模式下外部服务的 DSH_HOME：默认 ~/.deepseek-harness，用户可在设置里指定 */
+export function resolveExternalDshHome(configured?: string): string {
+  const c = (configured ?? '').trim();
+  return c !== '' ? c : join(homedir(), '.deepseek-harness');
+}
+
+/** 复用模式下外部服务的全局指令文件路径（= 运行中服务真实读取的那份 AGENTS.md） */
+export function externalAgentsPath(configured?: string): string {
+  return join(resolveExternalDshHome(configured), 'AGENTS.md');
 }
