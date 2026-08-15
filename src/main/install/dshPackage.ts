@@ -44,6 +44,44 @@ export function npmCommand(platform: NodeJS.Platform = process.platform): string
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+export interface NpmFetchEvent {
+  /** 包名（已解码，如 @deepseek-ai/dsh） */
+  name: string;
+  /** true = 真实下载了一个包（.tgz tarball）；false = 包元数据（manifest）请求 */
+  tarball: boolean;
+}
+
+/**
+ * 解析 npm `--loglevel=http` 的 stderr 行，识别一次真实下载（真实进度来源）。
+ * 例：`npm http fetch GET 200 https://registry.npmjs.org/lodash 1160ms (cache miss)`
+ * - 命中缓存的包走 `npm http cache … (cache hit)` 行，不是 `fetch`，不计数；
+ * - 304（未变化）与所有非下载行返回 null。
+ */
+export function parseNpmFetchLine(line: string): NpmFetchEvent | null {
+  const m = /npm http fetch GET 200 (\S+)/.exec(line);
+  if (!m) return null;
+  let path: string;
+  try {
+    path = new URL(m[1]).pathname.replace(/^\//, '');
+  } catch {
+    return null;
+  }
+  if (path === '') return null;
+  const tarball = /\/-\/[^/]+\.tgz$/.test(path);
+  if (tarball) {
+    const idx = path.indexOf('/-/');
+    if (idx >= 0) path = path.slice(0, idx);
+  }
+  let name: string;
+  try {
+    name = decodeURIComponent(path);
+  } catch {
+    name = path;
+  }
+  if (name === '') return null;
+  return { name, tarball };
+}
+
 /** 安装后 dsh 可执行文件路径（win32 有 .cmd 后缀）；非 win32 按 POSIX 拼接（跨平台正确） */
 export function dshBinPath(prefix: string, platform: NodeJS.Platform = process.platform): string {
   const bin = platform === 'win32' ? 'dsh.cmd' : 'dsh';
