@@ -15,38 +15,40 @@
       /* ===== 方案 A 设计 token（5 页共用，单文件内联，无外部资源） ===== */
       :root {
         color-scheme: dark;
-        /* OpenChamber 深色 token（[D83] 用户拍板：壳页面颜色与 OpenChamber 一致） */
-        --brand: oklch(77% .17 85);
-        --brand-hover: oklch(70.5% .213 47.604);
-        --brand-active: oklch(65% .2 55);
-        --bg: #151313;
-        --card: oklch(19% .01 40);
-        --text: oklch(85% .02 90);
-        --text-2: oklch(75% .02 80);
-        --error: oklch(65% .15 30);
-        --error-soft: oklch(33% .01 40);
-        --success: oklch(77% .17 85);
-        --success-soft: oklch(29% .01 40);
-        --line: oklch(31% .01 35);
+        /* 深色 token（贴合主页面深色版精确色：柔和、不高对比） */
+        --brand: #e6b800;
+        --brand-hover: #d4a800;
+        --brand-active: #c29600;
+        --bg: #0f0f0f;
+        --card: #1a1a1a;
+        --text: #e0e0e0;
+        --text-2: #a0a0a0;
+        --error: #ff6b6b;
+        --error-soft: #3a2020;
+        --success: #4caf50;
+        --success-soft: #1e2a1e;
+        --line: #333333;
       }
-      /* 浅色主题（OC light 精确 token；深浅一致无突变） */
+      /* 浅色主题（贴合主页面浅色版精确色） */
       html[data-dsh-theme="light"] {
-        --brand: oklch(0.65 0.2 55);
-        --brand-hover: oklch(0.6 0.2 55);
-        --brand-active: oklch(0.55 0.2 55);
-        --bg: oklch(0.97 0.02 85);
-        --card: oklch(0.99 0.01 90);
-        --text: oklch(0.25 0.02 40);
-        --text-2: oklch(0.45 0.02 50);
-        --error: oklch(0.55 0.25 25);
-        --error-soft: oklch(0.55 0.25 25 / 0.1);
-        --success: oklch(0.55 0.14 150);
-        --success-soft: oklch(0.55 0.14 150 / 0.12);
-        --line: oklch(0.85 0.02 70);
+        color-scheme: light;
+        --brand: #E26000;
+        --brand-hover: #CE5600;
+        --brand-active: #BC4E00;
+        --bg: #F9F4EB;
+        --card: #F0E8DC;
+        --text: #4D4D4D;
+        --text-2: #909090;
+        --error: #D93025;
+        --error-soft: #FCE8E6;
+        --success: #188038;
+        --success-soft: #E6F4EA;
+        --line: #E0D6C7;
       }
-      html[data-dsh-theme="light"] .btn { color: oklch(0.99 0.01 90); }
+      /* 浅色：主按钮白字（橙红底）；ghost 按钮保留品牌色字（透明底，避免白字看不见） */
+      html[data-dsh-theme="light"] .btn:not(.btn--ghost) { color: #FFFFFF; }
       html[data-dsh-theme="light"] .field input,
-      html[data-dsh-theme="light"] .field select { background: oklch(0.99 0.01 90); }
+      html[data-dsh-theme="light"] .field select { background: #FFFFFF; }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; }
       body {
@@ -91,14 +93,14 @@
       .field input {
         width: 100%; height: 44px; padding: 0 14px;
         border: 1px solid var(--line); border-radius: 10px;
-        background: oklch(33% .01 40); color: var(--text);
+        background: var(--card); color: var(--text);
         font: 400 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
       }
       .field input:focus { border-color: var(--brand); }
       .field select {
         width: 100%; height: 44px; padding: 0 14px;
         border: 1px solid var(--line); border-radius: 10px;
-        background: oklch(33% .01 40); color: var(--text);
+        background: var(--card); color: var(--text);
         font: 400 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
       }
       .field select:focus { border-color: var(--brand); }
@@ -186,7 +188,7 @@
         zh: {
           docTitle: '欢迎使用',
           stepOf: (n) => `第 ${n} 步 / 共 3 步`,
-          next: '下一步', test: '测试连接', save: '保存并继续', begin: '开始使用',
+          next: '下一步', test: '测试连接', save: '保存并继续', begin: '开始使用', skip: '跳过，稍后配置',
           testing: '正在测试连接…', saving: '正在保存…',
           fetchModels: '自动获取模型', fetchingModels: '正在获取模型列表…',
           fetched: (n) => `获取到 ${n} 个模型，已选第一个，可在下拉框中切换。`,
@@ -218,7 +220,7 @@
         en: {
           docTitle: 'Welcome',
           stepOf: (n) => `Step ${n} of 3`,
-          next: 'Next', test: 'Test connection', save: 'Save & continue', begin: 'Get started',
+          next: 'Next', test: 'Test connection', save: 'Save & continue', begin: 'Get started', skip: 'Skip for now',
           testing: 'Testing the connection…', saving: 'Saving…',
           fetchModels: 'Fetch models', fetchingModels: 'Fetching the model list…',
           fetched: (n) => `Found ${n} models; the first is selected. Switch in the dropdown.`,
@@ -446,6 +448,9 @@
             .catch(() => undefined)
             .finally(() => { b.disabled = false; testBtn.disabled = false; el.status.textContent = ''; });
         });
+
+        // 跳过接入：不填 apikey 也能先进演示步看界面（稍后可在官方设置里配置）
+        addButton(t.skip, 'btn btn--ghost', () => { goStep('demo'); });
 
         form.addEventListener('submit', (e) => { e.preventDefault(); saveBtn.click(); });
         baseUrl.focus();

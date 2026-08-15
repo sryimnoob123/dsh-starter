@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron';
 import {
   BRIDGE_API,
   parseConnectionConfig,
+  parseFilePathInput,
   parseLogKind,
   parsePort,
   parseProjectInstructionInput,
@@ -68,6 +69,10 @@ export interface ShellOps {
   saveProjectInstruction(input: { workspaceId: string; content: string }): Promise<{ ok: boolean; message: string }>;
   /** 用量统计（ZCode 式）：当前会话的 host 投影汇总 */
   getSessionUsage(): Promise<GetSessionUsageResult>;
+  /** 文件路径右键菜单：弹出 复制路径 / 打开所在位置 / 直接打开文件（[FR-11.1]） */
+  filePathMenu(path: string): void;
+  /** 文件路径左键：直接打开（壳用 shell.openPath，解决外部窗口不置顶） */
+  filePathOpen(path: string): Promise<void>;
   /** 窗口控制（自绘标题栏 [D84]：minimize / toggle-maximize / close=缩托盘） */
   windowControl(action: WindowAction): void;
 }
@@ -150,6 +155,18 @@ export function registerBridge(ops: ShellOps): void {
   });
 
   ipcMain.handle(BRIDGE_API.getSessionUsage, () => ops.getSessionUsage());
+
+  ipcMain.handle(BRIDGE_API.filePathMenu, (_event, raw: unknown) => {
+    const path = parseFilePathInput(raw);
+    if (!path) return;
+    ops.filePathMenu(path);
+  });
+
+  ipcMain.handle(BRIDGE_API.filePathOpen, (_event, raw: unknown) => {
+    const path = parseFilePathInput(raw);
+    if (!path) return;
+    return ops.filePathOpen(path);
+  });
 
   ipcMain.handle(BRIDGE_API.windowControl, (_event, raw: unknown) => {
     const action = parseWindowAction(raw);

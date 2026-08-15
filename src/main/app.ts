@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,8 @@ import {
 } from './window/desktopChrome.js';
 import { CODEX_SKIN_CSS } from './window/codexSkin.js';
 import { SETTINGS_EXTENSION_SCRIPT } from './window/settingsExtension.js';
+import { FILE_PATH_EXTENSION_SCRIPT, FILE_PATH_SELECTABLE_CSS } from './window/filePathExtension.js';
+import { resolveFilePath } from './files/path.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
 import { normalizeWindowBounds } from './window/bounds.js';
 import { buildCompactPayload, describeCompactFeedback, parseCurrentSessionId } from './commands/compact.js';
@@ -68,6 +70,11 @@ import {
 } from './prompt/promptSettings.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// [兼容] Chromium 沙箱在部分磁盘的 ACL 环境（如用户的 E 盘）会初始化失败，应用一启动就闪退（退出码 -36861）。
+// 禁用沙箱以彻底兼容任意安装路径（实测：同一 exe 在 C 盘正常、E 盘崩；加 --no-sandbox 后 E 盘正常）。
+// 本壳只加载本机 DSH 服务（127.0.0.1），contextIsolation + nodeIntegration:false 仍保留 renderer 隔离。
+app.commandLine.appendSwitch('no-sandbox');
 
 // ---------------------------------------------------------------------------
 // 常量（架构文档 §4：稳定边界；§8.7：桌面基线经 --patch 传入）
@@ -536,6 +543,26 @@ async function readCurrentSessionId(win: BrowserWindow): Promise<string | null> 
   }
 }
 
+/** 现查当前会话的工作区根 cwd（session.list 按 sessionId 匹配）；失败/缺失 → undefined */
+async function resolveCurrentSessionCwd(win: BrowserWindow): Promise<string | undefined> {
+  const sessionId = await readCurrentSessionId(win);
+  if (!sessionId) return undefined;
+  const port = getStore().load().port ?? 3080;
+  try {
+    const value = await callRpc({ port, method: 'session.list', payload: {} });
+    const items = (value as { items?: unknown } | null | undefined)?.items;
+    const list = Array.isArray(items) ? items : [];
+    for (const item of list as Array<{ sessionId?: unknown; cwd?: unknown }>) {
+      if (item?.sessionId === sessionId && typeof item.cwd === 'string' && item.cwd !== '') {
+        return item.cwd;
+      }
+    }
+  } catch {
+    // session.list 失败：相对路径无法定位，调用方按"相对路径原样"兜底
+  }
+  return undefined;
+}
+
 /** [FR-27] 托盘"压缩上下文"：session.prompt 发 /compact 斜杠命令（DSH 宿主执行，不进模型轮次） */
 async function runCompactCommand(win: BrowserWindow): Promise<void> {
   const sessionId = await readCurrentSessionId(win);
@@ -773,7 +800,10 @@ function createWindow(): BrowserWindow {
   applySavedBounds(win);
   watchBounds(win);
   win.on('close', (event) => {
-    // 关窗缩托盘（[FR-3.1]）：应用不退出、服务继续
+    // 关窗缩托盘（[FR-3.1]）：应用不退出、服务继续；
+    // 但用户从托盘「退出」（app.quit）时 quitting=true，必须放行——否则 quit 被这里的
+    // preventDefault 拦下、进程残留占用文件（删不掉/打包锁的根因）。
+    if (quitting) return;
     event.preventDefault();
     mainWindow?.hide();
   });
@@ -846,6 +876,9 @@ function createWindow(): BrowserWindow {
       win.webContents.insertCSS(CODEX_SKIN_CSS).catch(() => undefined);
       // 官方设置扩展：所有壳新设置都作为选项放进 DSH 自带设置（用户拍板）
       win.webContents.executeJavaScript(SETTINGS_EXTENSION_SCRIPT).catch(() => undefined);
+      // 文件路径动作（右键菜单/直接打开/框选复制，[FR-11.1] 壳承接）
+      win.webContents.executeJavaScript(FILE_PATH_EXTENSION_SCRIPT).catch(() => undefined);
+      win.webContents.insertCSS(FILE_PATH_SELECTABLE_CSS).catch(() => undefined);
     }
   });
   return win;
@@ -1331,6 +1364,47 @@ const shellOps: ShellOps = {
       };
     }
   },
+  filePathMenu: async (path) => {
+    // [FR-11.1] 对话内文件路径右键：复制路径 / 打开所在位置 / 直接打开文件
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) return;
+    const cwd = await resolveCurrentSessionCwd(win);
+    const resolved = resolveFilePath(cwd, path);
+    Menu.buildFromTemplate([
+      {
+        label: '复制路径',
+        click: () => {
+          clipboard.writeText(resolved);
+        },
+      },
+      { type: 'separator' },
+      {
+        label: '打开所在位置',
+        click: () => {
+          void shell.showItemInFolder(resolved);
+        },
+      },
+      {
+        label: '直接打开文件',
+        click: () => {
+          void shell.openPath(resolved).then((err) => {
+            if (err) showActionNotice(`无法打开文件：${err}`);
+          });
+        },
+      },
+    ]).popup({ window: win });
+  },
+  filePathOpen: async (path) => {
+    // 左键直接打开：由壳用 shell.openPath（ShellExecute 源=前台壳进程），外部窗口能正常置顶
+    const win = mainWindow;
+    const cwd = win && !win.isDestroyed() ? await resolveCurrentSessionCwd(win) : undefined;
+    const resolved = resolveFilePath(cwd, path);
+    const errorMessage = await shell.openPath(resolved);
+    if (errorMessage) {
+      writeLog('shell', `openPath failed: ${errorMessage} (${resolved})`);
+      showActionNotice(`无法打开文件：${errorMessage}`);
+    }
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1367,6 +1441,9 @@ if (!gotLock) {
     showActionNotice('应用已在运行');
   });
   app.whenReady().then(() => {
+    // [通知] Windows toast 横幅需要「开始菜单快捷方式 + AUMID 注册」（安装版由 electron-builder/Squirrel 自动做）。
+    // 免安装版没有快捷方式，toast 弹不出横幅；设一个稳定 AUMID 至少让通知进「通知中心」。安装版 Electron 会自动覆盖此值。
+    app.setAppUserModelId('com.dshdesktop.app');
     const win = createWindow();
     setupTray(win);
     registerBridge(shellOps);

@@ -49,6 +49,26 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       editingPath: '正在编辑：',
       modeManagedHint: '服务由本应用启动并接管：全局指令与身份 / Persona 均即时生效（改身份 / Persona 会自动重启接回会话）。',
       modeReuseHint: '服务由外部启动：全局指令写入外部服务真实读取的 AGENTS.md（新会话生效）；身份 / Persona 改动需手动重启外部服务。',
+      usageTitle: '用量统计',
+      usageHint: '全部会话的累计用量（token / 耗时 / 活动）。',
+      usageTokensTitle: 'Token',
+      usageTimeTitle: '耗时',
+      usageActivityTitle: '活动',
+      usageInput: '输入（未缓存）',
+      usageOutput: '输出',
+      usageCacheRead: '缓存读取',
+      usageCacheWrite: '缓存写入',
+      usageCacheHit: '缓存命中率',
+      usageLlm: 'LLM 总时长',
+      usageTool: '工具总时长',
+      usageTtft: '平均首 token',
+      usageDecode: '解码速度',
+      usageSessions: '会话数',
+      usageTurns: '轮次',
+      usageSteps: '步数',
+      usageRefresh: '刷新',
+      usageLoading: '正在读取用量…',
+      usageFailed: '读取失败：',
     },
     en: {
       title: 'Global prompt',
@@ -83,6 +103,26 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       editingPath: 'Editing: ',
       modeManagedHint: 'The service is started and managed by this app: global prompt and identity/persona all apply immediately (changing identity/persona auto-restarts and reattaches your session).',
       modeReuseHint: 'The service was started externally: the global prompt writes to the AGENTS.md that external service actually reads (applies to new sessions); identity/persona changes need a manual restart of the external service.',
+      usageTitle: 'Usage',
+      usageHint: 'Cumulative usage across all sessions (tokens / time / activity).',
+      usageTokensTitle: 'Tokens',
+      usageTimeTitle: 'Time',
+      usageActivityTitle: 'Activity',
+      usageInput: 'Input (uncached)',
+      usageOutput: 'Output',
+      usageCacheRead: 'Cache read',
+      usageCacheWrite: 'Cache write',
+      usageCacheHit: 'Cache hit',
+      usageLlm: 'LLM time',
+      usageTool: 'Tool time',
+      usageTtft: 'Avg first token',
+      usageDecode: 'Decode speed',
+      usageSessions: 'Sessions',
+      usageTurns: 'Turns',
+      usageSteps: 'Steps',
+      usageRefresh: 'Refresh',
+      usageLoading: 'Loading usage…',
+      usageFailed: 'Failed: ',
     },
   };
   var T = function (key) { return STR[LANG][key]; };
@@ -122,7 +162,17 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     '#dsh-gp-section .dsh-gp-mode{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;' +
     'font-weight:600;line-height:18px;margin:0 0 8px;border:1px solid transparent;}' +
     '#dsh-gp-section .dsh-gp-mode--managed{color:#3fb37a;background:rgba(63,179,122,0.12);border-color:rgba(63,179,122,0.35);}' +
-    '#dsh-gp-section .dsh-gp-mode--reuse{color:#d98678;background:rgba(217,134,120,0.12);border-color:rgba(217,134,120,0.35);}';
+    '#dsh-gp-section .dsh-gp-mode--reuse{color:#d98678;background:rgba(217,134,120,0.12);border-color:rgba(217,134,120,0.35);}' +
+    '#dsh-gp-usage-section{color:var(--dsw-alias-label-primary,#e8e6dd);flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:0 24px 24px;box-sizing:border-box;font-size:14px;line-height:1.5;}' +
+    '#dsh-gp-usage-section h2{margin:0 0 4px;font-size:15px;font-weight:600;}' +
+    '#dsh-gp-usage-section h3{margin:18px 0 6px;font-size:14px;font-weight:500;}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-hint{margin:0 0 10px;color:var(--dsw-alias-label-secondary,#b6b4ab);font-size:13px;}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:0 0 4px;}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-card{background:var(--dsw-alias-bg-layer-2,#1c1b1a);border:1px solid var(--dsw-alias-border-l2,#393836);border-radius:9px;padding:10px 12px;min-width:0;}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-k{display:block;font-size:12px;color:var(--dsw-alias-label-secondary,#b6b4ab);margin-bottom:2px;overflow-wrap:anywhere;}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-v{display:block;font-size:18px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums;}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-status{display:block;min-height:20px;margin-top:8px;font-size:13px;color:var(--dsw-alias-label-secondary,#b6b4ab);}' +
+    '#dsh-gp-usage-section .dsh-gp-usage-status.err{color:var(--dsw-alias-state-error-primary,#d98678);}';
   if (!document.getElementById('dsh-gp-style')) {
     style.id = 'dsh-gp-style';
     document.head.appendChild(style);
@@ -137,6 +187,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     folder: '<path d="M2.5 4.5h4l1.5 2h5.5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-7a.5.5 0 0 1 .5-.5Z"/>',
     bell: '<path d="M8 3a3.5 3.5 0 0 1 3.5 3.5c0 2.5 1 3.5 1.5 4H3c.5-.5 1.5-1.5 1.5-4A3.5 3.5 0 0 1 8 3Z"/><path d="M7 13a1.5 1.5 0 0 0 2 0"/>',
     doc: '<path d="M3 3h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M5 6.5h6M5 9.5h6M5 12.5h3"/>',
+    chart: '<path d="M3 13h10"/><path d="M5.5 13V9"/><path d="M8 13V6"/><path d="M10.5 13V3.5"/>',
   };
   var ICON = function (kind) {
     return '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICON_D[kind] || '') + '</svg>';
@@ -297,6 +348,105 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     fill();
   }
 
+  function usageCard(id, label) {
+    return '<div class="dsh-gp-usage-card"><span class="dsh-gp-usage-k">' + label + '</span><span class="dsh-gp-usage-v" id="' + id + '">–</span></div>';
+  }
+
+  function usageMarkup() {
+    return '' +
+      '<h2>' + T('usageTitle') + '</h2>' +
+      '<p class="dsh-gp-usage-hint">' + T('usageHint') + '</p>' +
+      '<p style="margin:0 0 12px"><button class="dsh-gp-btn dsh-gp-ghost" id="dsh-gp-usage-refresh" type="button">' + T('usageRefresh') + '</button></p>' +
+      '<h3>' + T('usageTokensTitle') + '</h3>' +
+      '<div class="dsh-gp-usage-grid">' +
+        usageCard('dsh-gp-usage-input', T('usageInput')) +
+        usageCard('dsh-gp-usage-output', T('usageOutput')) +
+        usageCard('dsh-gp-usage-cache-read', T('usageCacheRead')) +
+        usageCard('dsh-gp-usage-cache-write', T('usageCacheWrite')) +
+        usageCard('dsh-gp-usage-cache-hit', T('usageCacheHit')) +
+      '</div>' +
+      '<h3>' + T('usageTimeTitle') + '</h3>' +
+      '<div class="dsh-gp-usage-grid">' +
+        usageCard('dsh-gp-usage-llm', T('usageLlm')) +
+        usageCard('dsh-gp-usage-tool', T('usageTool')) +
+        usageCard('dsh-gp-usage-ttft', T('usageTtft')) +
+        usageCard('dsh-gp-usage-decode', T('usageDecode')) +
+      '</div>' +
+      '<h3>' + T('usageActivityTitle') + '</h3>' +
+      '<div class="dsh-gp-usage-grid">' +
+        usageCard('dsh-gp-usage-sessions', T('usageSessions')) +
+        usageCard('dsh-gp-usage-turns', T('usageTurns')) +
+        usageCard('dsh-gp-usage-steps', T('usageSteps')) +
+      '</div>' +
+      '<span class="dsh-gp-usage-status" id="dsh-gp-usage-status"></span>';
+  }
+
+  function fmtTokens(n) {
+    var scaled = function (v) { return v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10); };
+    if (n < 1000) return String(n);
+    if (n < 1000000) return scaled(n / 1000) + 'K';
+    return scaled(n / 1000000) + 'M';
+  }
+
+  function fmtDuration(ms) {
+    var s = ms / 1000;
+    if (s < 60) return String(Math.round(s * 10) / 10) + 's';
+    var whole = Math.round(s);
+    return Math.floor(whole / 60) + 'm' + (whole % 60) + 's';
+  }
+
+  function setUsage(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function setUsageStatus(text, isErr) {
+    var el = document.getElementById('dsh-gp-usage-status');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'dsh-gp-usage-status' + (isErr ? ' err' : '');
+  }
+
+  async function fillUsage() {
+    if (!shell || !document.getElementById('dsh-gp-usage-section')) return;
+    setUsageStatus(T('usageLoading'), false);
+    try {
+      var r = await shell.getSessionUsage();
+      if (!r || !r.ok) {
+        setUsageStatus(T('usageFailed') + ((r && r.message) || ''), true);
+        return;
+      }
+      var u = r.usage || {};
+      var billed = (u.uncachedInputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheWriteTokens || 0);
+      var hit = billed === 0 ? null : Math.round(((u.cacheReadTokens || 0) / billed) * 100);
+      var ttftSteps = u.ttftSteps || 0;
+      var avgTtft = ttftSteps === 0 ? null : (u.ttftMs || 0) / ttftSteps;
+      var decodeSpeed = u.decodeMs > 0 && u.decodeTokens > 0
+        ? Math.round((u.decodeTokens / (u.decodeMs / 1000)) * 10) / 10
+        : null;
+      setUsage('dsh-gp-usage-input', fmtTokens(u.uncachedInputTokens || 0));
+      setUsage('dsh-gp-usage-output', fmtTokens(u.outputTokens || 0));
+      setUsage('dsh-gp-usage-cache-read', fmtTokens(u.cacheReadTokens || 0));
+      setUsage('dsh-gp-usage-cache-write', fmtTokens(u.cacheWriteTokens || 0));
+      setUsage('dsh-gp-usage-cache-hit', hit === null ? '–' : hit + '%');
+      setUsage('dsh-gp-usage-llm', fmtDuration(u.llmMs || 0));
+      setUsage('dsh-gp-usage-tool', fmtDuration(u.toolMs || 0));
+      setUsage('dsh-gp-usage-ttft', avgTtft === null ? '–' : String(Math.round(avgTtft / 100) / 10) + 's');
+      setUsage('dsh-gp-usage-decode', decodeSpeed === null ? '–' : String(decodeSpeed) + ' t/s');
+      setUsage('dsh-gp-usage-sessions', String(r.sessionCount || 0));
+      setUsage('dsh-gp-usage-turns', String(u.turns || 0));
+      setUsage('dsh-gp-usage-steps', String(u.steps || 0));
+      setUsageStatus('', false);
+    } catch (e) {
+      setUsageStatus(T('usageFailed') + String(e), true);
+    }
+  }
+
+  function wireUsage() {
+    document.getElementById('dsh-gp-usage-refresh').addEventListener('click', fillUsage);
+    fillUsage();
+  }
+
   function makeNavCell(navBtn, id, titleKey, iconInner) {
     var cell = navBtn.cloneNode(true);
     cell.id = id;
@@ -328,36 +478,52 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
     var content = nav.nextElementSibling;
     if (!panelRoot || !content || document.getElementById('dsh-gp-nav')) return;
 
-    // 克隆导航格（保 DSH 原生样式），去掉激活类，换我们的标题与图标
-    var cell = makeNavCell(navBtn, 'dsh-gp-nav', 'title', ICON_D.doc);
-    // 紧跟在"通用设置"之后（第 2 位），比排在最后更显眼
-    navList.insertBefore(cell, navList.children[1] || null);
-
     // 内容区 = nav 之后的兄弟（.content = .header 关闭钮 + .options 滚动区）。
     // 面板挂进 .content（.options 之后）而非 .panel：.panel 是 overflow:hidden 定高，
     // 挂那会被裁掉、无法上下滑动；挂 .content 内既保留关闭钮可见，又让面板作为
     // flex 子项（flex:1 + overflow-y:auto）随 .content 列布局滚动。
     var options = content.lastElementChild;
-    var section = document.createElement('div');
-    section.id = 'dsh-gp-section';
-    section.style.display = 'none';
-    section.innerHTML = sectionMarkup();
-    content.appendChild(section);
-    wire();
 
-    cell.addEventListener('click', function () {
-      if (options) options.style.display = 'none';
-      section.style.display = '';
-      Array.prototype.forEach.call(navList.children, function (c) {
-        c.className = c.className.split(/\\s+/).filter(function (x) { return !/active/i.test(x); }).join(' ');
+    // 壳扩展清单（顺序 = 导航位置）：全局提示词第 2 位、用量统计第 3 位
+    var exts = [
+      { navId: 'dsh-gp-nav', sectionId: 'dsh-gp-section', titleKey: 'title', icon: ICON_D.doc, markup: sectionMarkup, wire: wire },
+      { navId: 'dsh-gp-usage-nav', sectionId: 'dsh-gp-usage-section', titleKey: 'usageTitle', icon: ICON_D.chart, markup: usageMarkup, wire: wireUsage },
+    ];
+
+    exts.forEach(function (ext, idx) {
+      // 克隆导航格（保 DSH 原生样式），去掉激活类，换我们的标题与图标
+      var cell = makeNavCell(navBtn, ext.navId, ext.titleKey, ext.icon);
+      navList.insertBefore(cell, navList.children[1 + idx] || null);
+      var section = document.createElement('div');
+      section.id = ext.sectionId;
+      section.style.display = 'none';
+      section.innerHTML = ext.markup();
+      content.appendChild(section);
+      ext.wire();
+
+      cell.addEventListener('click', function () {
+        if (options) options.style.display = 'none';
+        exts.forEach(function (o) {
+          var s = document.getElementById(o.sectionId);
+          if (s) s.style.display = 'none';
+        });
+        section.style.display = '';
+        Array.prototype.forEach.call(navList.children, function (c) {
+          c.className = c.className.split(/\\s+/).filter(function (x) { return !/active/i.test(x); }).join(' ');
+        });
+        cell.className += ' ' + (navBtn.className.split(/\\s+/).find(function (x) { return /active/i.test(x); }) || '');
       });
-      cell.className += ' ' + (navBtn.className.split(/\\s+/).find(function (x) { return /active/i.test(x); }) || '');
     });
+
     Array.prototype.forEach.call(navList.children, function (c) {
-      if (c === cell) return;
+      var isExt = exts.some(function (e) { return c.id === e.navId; });
+      if (isExt) return;
       c.addEventListener('click', function () {
         if (options) options.style.display = '';
-        section.style.display = 'none';
+        exts.forEach(function (o) {
+          var s = document.getElementById(o.sectionId);
+          if (s) s.style.display = 'none';
+        });
       });
     });
   }
