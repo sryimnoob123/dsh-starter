@@ -22,12 +22,13 @@ The shell only owns four things: **window**, **tray**, **notifications**, and **
 
 ### Status
 
-Early stage (MVP). The shell core is implemented and covered by **276 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
+Early stage (MVP). The shell core is implemented and covered by **334 tests**. Some features (auto-update, first-run onboarding, install wizard) are wired up but not yet fully verified on real machines. Contributions are welcome.
 
 ### Features
 
 - 🪟 Frameless window + self-drawn titlebar (minimize / maximize / close-to-tray)
-- 🌙 Dark theme
+- 🌙 Light / dark theme (follows the OS, or pick in DSH appearance settings) — Codex-style skin
+- 📊 Usage stats — per-session token / time / activity (tray → Usage)
 - 📌 System tray menu (open / stop service / logs / settings / check updates / help / quit)
 - ⚡ Quick actions — one-click "Compact context" tray shortcut for the current session
 - 🔔 Desktop notifications for finished / failed jobs
@@ -80,12 +81,13 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 ### 当前进度
 
-早期阶段（MVP）。壳核心已完成，并有 **276 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
+早期阶段（MVP）。壳核心已完成，并有 **334 个测试**覆盖。自动更新、首启向导、安装向导已接入，但尚未在真机完整验证。欢迎贡献。
 
 ### 功能
 
 - 🪟 无边框窗口 + 自绘标题栏（最小化 / 最大化 / 关闭缩到托盘）
-- 🌙 深色主题
+- 🌙 浅色 / 深色主题（跟随系统，或到 DSH 外观设置里选）—— Codex 风格换肤
+- 📊 用量统计 —— 每会话 token / 耗时 / 活动（托盘 → 用量）
 - 📌 系统托盘菜单（打开 / 停止服务 / 日志 / 设置 / 检查更新 / 帮助 / 退出）
 - ⚡ 快捷操作 —— 托盘一键"压缩上下文"（当前会话）
 - 🔔 任务完成 / 失败桌面通知
