@@ -2,3 +2,7 @@
 # 否则 `pnpm install` 后 `pnpm start` 会报 "Electron failed to install correctly"。
 onlyBuiltDependencies:
   - electron
+
+# 平铺 node_modules（node-linker=hoisted）：electron-builder 打包时要把 electron-updater 的
+# 传递依赖（fs-extra 等）一并收进 asar，否则打包版启动报 "Cannot find module 'fs-extra'"。
+nodeLinker: hoisted
