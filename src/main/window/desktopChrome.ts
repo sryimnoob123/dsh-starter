@@ -41,7 +41,10 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
     '#dsh-float-controls button[data-act="close"]:hover{background:var(--dsh-desktop-titlebar-close-hover,oklch(65% .15 30));}';
   document.head.appendChild(style);
   box.querySelectorAll('button').forEach(function (b) {
-    b.addEventListener('click', function () {
+    b.addEventListener('click', function (ev) {
+      // 只响应真实用户点击；合成 click（isTrusted=false）一律忽略——
+      // 否则 DSH React 高频重渲染下会被反复自动触发，导致每 ~5s 刷一次"检查更新"
+      if (ev && ev.isTrusted === false) return;
       var w = window.dshShell;
       if (!w) return;
       var act = b.getAttribute('data-act');
