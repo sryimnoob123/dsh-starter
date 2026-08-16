@@ -48,7 +48,7 @@ The shell only owns four things: **window**, **tray**, **notifications**, and **
 
 ### Known limitations
 
-- **Persistent terminal on Windows needs the "Full access" sandbox.** The persistent `bash` tool (Git Bash) only starts when the session's permission preset is **Full access** (`danger-full-access`). Under the default `Workspace Write` preset, Git Bash (MSYS) cannot create its signal pipe and the tool reports `PTY shell exited during startup`. To use the persistent terminal, switch the session's permission preset to "Full access" (or run `/permission danger-full-access`) — the trade-off is that shell commands then run without the file sandbox.
+- **New sessions default to the "Full access" permission preset** so the persistent `bash` tool (Git Bash) works out of the box on Windows. You can still switch a session back to `Workspace Write` per-session (`/permission`), and change the default in Settings → Permission — the shell only defaults it once and never overrides your later choice. The trade-off: under Full access, shell commands run without the file sandbox.
 
 ### Install
 
@@ -115,7 +115,7 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 
 ### 已知限制
 
-- **Windows 持久终端需要「Full access（完全访问）」沙箱。** 持久化 `bash` 工具（Git Bash）只有在会话权限预设为 **Full access（`danger-full-access`）** 时才能启动；默认的 Workspace Write 预设下，Git Bash（MSYS）建不了信号管道，工具会报 `PTY shell exited during startup`。要用持久终端，把会话权限预设切成「Full access」（或执行 `/permission danger-full-access`）即可——代价是 shell 命令不再受文件沙箱约束。
+- **新会话默认权限是「Full access（完全访问）」（壳首次启动写一次）。** 目的就是让 Windows 持久终端（Git Bash）开箱即用。你仍可随时把某个会话切回「Workspace Write」（`/permission`），或在「设置 → 权限」里改默认值——壳只写这一次，之后你手改它绝不覆盖。代价：Full access 下 shell 命令不受文件沙箱约束。
 
 ### 安装
 

@@ -23,6 +23,8 @@ export interface ShellConfig {
   uiTheme?: 'system' | 'dark' | 'light';
   /** 捆绑的 win-terminal-inspector 插件是否已装进 web profile（win32 首启装一次，[bugfix] 持久终端） */
   winTerminalInspectorInstalled?: boolean;
+  /** 新会话默认权限是否已设为 danger-full-access（O2-A 只写一次，之后用户手改壳不再覆盖） */
+  permissionDefaultApplied?: boolean;
 }
 
 const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };

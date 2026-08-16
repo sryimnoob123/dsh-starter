@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deepseekharness</title>
+    <!--
+      更新进度小窗（O1 用户拍板：独立小窗 + OpenChamber 风 + 自动/手动都弹）
+      桥契约：src/main/updater/update-preload.cjs —— dshUpdate.onState(状态帧) / dshUpdate.action('install'|'dismiss'|'retry')
+      参数：uiTheme=dark|light（跟随生效主题，与其余壳页一致）
+    -->
+    <style>
+      /* ===== OpenChamber 深色设计 token（[D83] 用户拍板，与壳 5 页共用的同一套） ===== */
+      :root {
+        color-scheme: dark;
+        --brand: oklch(77% .17 85);
+        --brand-hover: oklch(70.5% .213 47.604);
+        --brand-active: oklch(65% .2 55);
+        --bg: #151313;
+        --card: oklch(19% .01 40);
+        --text: oklch(85% .02 90);
+        --text-2: oklch(75% .02 80);
+        --error: oklch(65% .15 30);
+        --error-soft: oklch(33% .01 40);
+        --success: oklch(77% .17 85);
+        --success-soft: oklch(29% .01 40);
+        --line: oklch(31% .01 35);
+      }
+      html[data-dsh-theme="light"] {
+        --brand: oklch(0.65 0.2 55);
+        --brand-hover: oklch(0.6 0.2 55);
+        --brand-active: oklch(0.55 0.2 55);
+        --bg: oklch(0.97 0.02 85);
+        --card: oklch(0.99 0.01 90);
+        --text: oklch(0.25 0.02 40);
+        --text-2: oklch(0.45 0.02 50);
+        --error: oklch(0.55 0.25 25);
+        --error-soft: oklch(0.55 0.25 25 / 0.1);
+        --success: oklch(0.55 0.14 150);
+        --success-soft: oklch(0.55 0.14 150 / 0.12);
+        --line: oklch(0.85 0.02 70);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        display: grid; place-items: center;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--text);
+        font: 400 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      /* 顶部拖拽区（无边框小窗拖动用）+ 关闭按钮 */
+      .dragbar {
+        position: fixed; top: 0; left: 0; right: 0; height: 28px;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 8px 0 14px;
+        -webkit-app-region: drag;
+        user-select: none;
+        color: var(--text-2); font-size: 11px; letter-spacing: 0.4px;
+      }
+      .dragbar button {
+        -webkit-app-region: no-drag;
+        width: 24px; height: 24px; border: 0; border-radius: 6px;
+        background: transparent; color: var(--text-2); cursor: pointer;
+        font: 500 13px/1 "Segoe UI", sans-serif;
+      }
+      .dragbar button:hover { background: var(--line); color: var(--text); }
+
+      .card {
+        width: 100%;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 26px 24px 22px;
+        text-align: center;
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.4);
+        animation: rise 150ms ease-out;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      .badge {
+        width: 44px; height: 44px; margin: 0 auto 12px;
+        border-radius: 50%; display: grid; place-items: center;
+        background: var(--bg); color: var(--brand);
+      }
+      .badge svg { width: 22px; height: 22px; }
+
+      h1 { margin: 0 0 6px; font-size: 16px; font-weight: 600; line-height: 1.35; }
+      .subtitle { margin: 0 0 14px; font-size: 12px; color: var(--text-2); min-height: 18px; }
+
+      .progress {
+        height: 6px; border-radius: 999px;
+        background: var(--bg); overflow: hidden;
+        margin-bottom: 10px;
+      }
+      .progress .bar {
+        height: 100%; width: 0;
+        border-radius: 999px;
+        background: var(--brand);
+        transition: width 200ms linear;
+      }
+      .meta {
+        display: flex; justify-content: space-between; gap: 8px;
+        font-size: 12px; color: var(--text-2);
+        margin-bottom: 8px;
+        min-height: 18px;
+      }
+      .errorline {
+        margin: 4px 0 12px; font-size: 12px; color: var(--error);
+        word-break: break-all; max-height: 60px; overflow: auto;
+      }
+
+      .actions { display: flex; justify-content: center; gap: 10px; margin-top: 6px; min-height: 34px; }
+      .actions button {
+        border: 0; border-radius: 9px; cursor: pointer;
+        padding: 8px 18px;
+        font: 600 13px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      .btn-primary { background: var(--brand); color: oklch(16% .01 30); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+      .btn-primary:hover { background: var(--brand-hover); }
+      .btn-primary:active { background: var(--brand-active); }
+      .btn-ghost { background: transparent; color: var(--text-2); }
+      .btn-ghost:hover { background: var(--line); color: var(--text); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body data-dsh-theme="dark">
+    <div class="dragbar">
+      <span>deepseek-harness-starter</span>
+      <button id="btn-x" title="隐藏（下载继续，可在托盘安装）">✕</button>
+    </div>
+    <div class="card">
+      <div class="badge" id="badge">
+        <!-- 下载中：箭头进盘；完成：对勾；错误：叹号 -->
+        <svg id="icon-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        <svg id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden>
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <svg id="icon-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden>
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </div>
+      <h1 id="title">正在下载新版本…</h1>
+      <p class="subtitle" id="subtitle"></p>
+      <div class="progress"><div class="bar" id="bar"></div></div>
+      <div class="meta">
+        <span id="percent"></span>
+        <span id="speed"></span>
+      </div>
+      <p class="errorline" id="error" hidden></p>
+      <div class="actions">
+        <button id="btn-install" class="btn-primary" hidden>现在安装</button>
+        <button id="btn-dismiss" class="btn-ghost" hidden>稍后</button>
+        <button id="btn-retry" class="btn-primary" hidden>重试</button>
+      </div>
+    </div>
+    <script>
+      var update = window.dshUpdate;
+      function $(id) { return document.getElementById(id); }
+      function bytes(n) {
+        if (n === null || n === undefined || !isFinite(n)) return '';
+        if (n < 1024) return n + ' B';
+        var units = ['KB', 'MB', 'GB', 'TB'];
+        var i = -1;
+        do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+        return n.toFixed(n >= 10 ? 0 : 1) + ' ' + units[i];
+      }
+      function speedText(s) {
+        if (s === null || s === undefined || !isFinite(s)) return '';
+        return bytes(s) + '/s';
+      }
+      function show(id, on) { $(id).hidden = !on; }
+
+      function render(state) {
+        if (!state) return;
+        show('icon-download', state.phase === 'downloading' || state.phase === 'checking');
+        show('icon-check', state.phase === 'downloaded');
+        show('icon-alert', state.phase === 'error');
+        show('btn-install', state.phase === 'downloaded');
+        show('btn-dismiss', state.phase === 'downloaded');
+        show('btn-retry', state.phase === 'error');
+        show('error', state.phase === 'error');
+        show('btn-x', true);
+
+        if (state.phase === 'checking') {
+          $('title').textContent = '正在检查更新…';
+          $('subtitle').textContent = '';
+          setProgress(0, '', '');
+        } else if (state.phase === 'downloading') {
+          $('title').textContent = state.version ? '正在下载 v' + state.version : '正在下载新版本…';
+          $('subtitle').textContent = '下载完不会立刻安装，会等你确认';
+          var pct = Math.max(0, Math.min(100, state.percent || 0));
+          setProgress(pct, Math.round(pct) + '%', speedText(state.speed));
+          if (!state.total) {
+            $('percent').textContent = Math.round(pct) + '% (' + bytes(state.transferred) + ')';
+          } else {
+            var left = bytes(Math.max(0, state.total - (state.transferred || 0)));
+            $('speed').textContent = left + ' 剩余 · ' + speedText(state.speed);
+          }
+        } else if (state.phase === 'downloaded') {
+          $('title').textContent = state.version ? 'v' + state.version + ' 已下载好' : '新版本已下载好';
+          $('subtitle').textContent = '安装会重启应用，后台服务与任务不受影响，重启后自动接回会话';
+          setProgress(100, '100%', '');
+        } else if (state.phase === 'error') {
+          $('title').textContent = '更新出了问题';
+          $('subtitle').textContent = '';
+          $('error').textContent = (state.error || '未知错误') ;
+          setProgress(0, '', '');
+        }
+      }
+      function setProgress(pct, percentText, speedTextValue) {
+        $('bar').style.width = pct + '%';
+        $('percent').textContent = percentText;
+        $('speed').textContent = speedTextValue;
+      }
+
+      $('btn-x').addEventListener('click', function () { update.action('dismiss'); });
+      $('btn-install').addEventListener('click', function () { update.action('install'); });
+      $('btn-dismiss').addEventListener('click', function () { update.action('dismiss'); });
+      $('btn-retry').addEventListener('click', function () { update.action('retry'); });
+
+      // 跟随壳主题（与其余壳页一致：uiTheme=dark|light）
+      var theme = new URLSearchParams(location.search).get('uiTheme') || 'dark';
+      document.documentElement.dataset.dshTheme = theme;
+      document.body.dataset.dshTheme = theme;
+
+      update.onState(render);
+    </script>
+  </body>
+</html>

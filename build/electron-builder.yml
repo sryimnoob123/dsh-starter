@@ -29,8 +29,7 @@ publish:
   repo: dsh-starter
   publishAutoUpdate: true
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
   # 卸载时删除应用数据（AppData 里的配置/日志/下载的 Node 运行时），更新时自动保留
   deleteAppDataOnUninstall: true
   # 产物名与 latest.yml 的 url/path 严格一致（连字符），自动更新才能命中资产
