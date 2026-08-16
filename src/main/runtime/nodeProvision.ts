@@ -11,8 +11,11 @@ import { isNodeOk } from '../service/nodeCheck.js';
 import {
   buildNodeDownloadUrl,
   localNodeExe,
+  localNpmCli,
   localNpmCmd,
   NODE_DEFAULT_VERSION,
+  NODE_MIRROR_NPMMIRROR,
+  NODE_MIRROR_OFFICIAL,
   nodeDistName,
   nodeRuntimeDir,
 } from './nodeRuntime.js';
@@ -21,6 +24,8 @@ export interface NodeRuntime {
   kind: 'system' | 'local';
   nodeExe: string;
   npmCmd: string;
+  /** npm 的 CLI JS 入口（node 直跑用，替代 npm.cmd——中文路径安全） */
+  npmCli: string;
 }
 
 /** 运行一个命令并捕获 stdout（用于 --version 探测）；失败返回 null。 */
@@ -48,14 +53,23 @@ export async function resolveNodeRuntime(opts: {
   const platform = opts.platform ?? process.platform;
   const sysVer = await probeSystemNodeVersion();
   if (sysVer !== null && isNodeOk(sysVer)) {
-    return { kind: 'system', nodeExe: 'node', npmCmd: platform === 'win32' ? 'npm.cmd' : 'npm' };
+    // 系统 node：让 node 自报 execPath 定位 npm-cli.js（比 PATH 解析可靠）
+    const execPath = await runCapture('node', ['-p', 'process.execPath']);
+    const nodeDir = execPath ? execPath.replace(/[\\/]node\.exe$/i, '') : '';
+    const npmCli = nodeDir !== '' && existsSync(localNpmCli(nodeDir)) ? localNpmCli(nodeDir) : '';
+    return {
+      kind: 'system',
+      nodeExe: 'node',
+      npmCmd: platform === 'win32' ? 'npm.cmd' : 'npm',
+      npmCli,
+    };
   }
   const dir = nodeRuntimeDir(opts.userData);
   const exe = localNodeExe(dir, platform);
   if (existsSync(exe)) {
     const ver = await runCapture(exe, ['--version']);
     if (ver !== null && isNodeOk(ver)) {
-      return { kind: 'local', nodeExe: exe, npmCmd: localNpmCmd(dir, platform) };
+      return { kind: 'local', nodeExe: exe, npmCmd: localNpmCmd(dir, platform), npmCli: localNpmCli(dir) };
     }
   }
   return null;
@@ -78,12 +92,30 @@ export async function ensureNodeRuntime(opts: {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
 
-  const url = buildNodeDownloadUrl({ version: NODE_DEFAULT_VERSION, platform, arch });
-  opts.onProgress?.(`正在下载 Node.js ${NODE_DEFAULT_VERSION} …`);
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Node.js 下载失败：HTTP ${response.status}`);
+  // 下载带 60s 超时 + 镜像回落（npmmirror → 官方）：镜像挂了不再永久卡在"正在下载 Node"
+  const mirrors = [NODE_MIRROR_NPMMIRROR, NODE_MIRROR_OFFICIAL];
+  let zipBuffer: Buffer | null = null;
+  for (const mirror of mirrors) {
+    try {
+      const url = buildNodeDownloadUrl({ version: NODE_DEFAULT_VERSION, platform, arch, mirror });
+      opts.onProgress?.(`正在下载 Node.js ${NODE_DEFAULT_VERSION} …`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60_000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) continue;
+        zipBuffer = Buffer.from(await response.arrayBuffer());
+        break;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      // 该镜像超时/失败：换下一个
+    }
+  }
+  if (zipBuffer === null) throw new Error('Node.js 下载失败：镜像与官方源均不可达，请检查网络后重试');
   const zipPath = join(dir, '.node-download.zip');
-  await writeFile(zipPath, Buffer.from(await response.arrayBuffer()));
+  await writeFile(zipPath, zipBuffer);
 
   const tmpDir = join(dir, '.node-tmp');
   rmSync(tmpDir, { recursive: true, force: true });
@@ -100,7 +132,7 @@ export async function ensureNodeRuntime(opts: {
   const exe = localNodeExe(dir, platform);
   const ver = await runCapture(exe, ['--version']);
   if (ver === null || !isNodeOk(ver)) throw new Error(`下载的 Node.js 版本异常：${String(ver)}`);
-  return { kind: 'local', nodeExe: exe, npmCmd: localNpmCmd(dir, platform) };
+  return { kind: 'local', nodeExe: exe, npmCmd: localNpmCmd(dir, platform), npmCli: localNpmCli(dir) };
 }
 
 function runPs(script: string): Promise<void> {

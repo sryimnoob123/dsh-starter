@@ -11,6 +11,20 @@ import { callRpc, RpcError } from '../service/rpc.js';
 
 export const PROVIDER_ID = 'desktop';
 export const CREDENTIAL_REF = 'DSH_DESKTOP_KEY';
+/** DeepSeek 官方 provider（llm-deepseek, route deepseek-official）生态约定的凭据引用名 */
+export const DEEPSEEK_CREDENTIAL_REF = 'DEEPSEEK_API_KEY';
+
+/** DeepSeek 官方 API 主机（走 llm-deepseek 官方 provider，原生支持思考强度 off/high/max） */
+export const DEEPSEEK_OFFICIAL_HOST = 'api.deepseek.com';
+
+/** 是否是 DeepSeek 官方端点（onboarding 命中时改配官方 provider，否则思考强度不可调） */
+export function isDeepSeekOfficialBaseUrl(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname === DEEPSEEK_OFFICIAL_HOST;
+  } catch {
+    return false;
+  }
+}
 
 export function buildProviderPatch(baseUrl: string, model: string, models?: string[]): {
   ns: string;
@@ -32,21 +46,55 @@ export function buildProviderPatch(baseUrl: string, model: string, models?: stri
   };
 }
 
+/**
+ * DeepSeek 官方接入补丁（ns=llm-deepseek，route=deepseek-official）：
+ * 官方 provider 的原生适配器自带思考支持（reasoningEffort off/high/max），
+ * 而 pi-ai 通用 openai-completions 对未声明 reasoningEfforts 的模型一律 reasoning=false——
+ * 这就是"官方 key 也改不了思考强度"的根因。
+ */
+export function buildDeepSeekPatch(baseUrl: string, model: string, models?: string[]): {
+  ns: string;
+  patch: Record<string, unknown>;
+} {
+  const ids = models !== undefined && models.length > 0 ? models : [model];
+  return {
+    ns: 'llm-deepseek',
+    patch: {
+      // 用生态约定名 DEEPSEEK_API_KEY：与 DSH 内置路由默认一致，设置页看到的名字也对得上
+      apiKeyEnv: DEEPSEEK_CREDENTIAL_REF,
+      baseURL: baseUrl.replace(/\/+$/, ''),
+      models: ids.map((id) => ({ id })),
+    },
+  };
+}
+
 export async function saveConnectionToService(
   port: number,
   cfg: ConnectionConfig,
   fetchImpl?: typeof fetch,
 ): Promise<ConnectionResult> {
   try {
+    // 凭据名按路由区分：官方 DeepSeek → DEEPSEEK_API_KEY（内置路由默认名）；
+    // 其他端点 → DSH_DESKTOP_KEY（自定义 provider）
+    const isOfficial = isDeepSeekOfficialBaseUrl(cfg.baseUrl);
     await callRpc({
       port,
       method: 'credentials.set',
-      payload: { ref: CREDENTIAL_REF, value: cfg.apiKey },
+      payload: { ref: isOfficial ? DEEPSEEK_CREDENTIAL_REF : CREDENTIAL_REF, value: cfg.apiKey },
       fetchImpl,
     });
-    const { ns, patch } = buildProviderPatch(cfg.baseUrl, cfg.model, cfg.models);
+    // DeepSeek 官方端点 → 配 llm-deepseek 官方 section（思考强度原生可调）；
+    // 其他端点 → 通用 pi-ai openai-completions provider
+    const { ns, patch } = isOfficial
+      ? buildDeepSeekPatch(cfg.baseUrl, cfg.model, cfg.models)
+      : buildProviderPatch(cfg.baseUrl, cfg.model, cfg.models);
     await callRpc({ port, method: 'settings.update', payload: { ns, patch }, fetchImpl });
-    return { ok: true, message: '已保存：密钥写入凭据存储，provider 登记完成，即时生效。' };
+    return {
+      ok: true,
+      message: isOfficial
+        ? '已保存：DeepSeek 官方接入完成，思考强度可以调节了。'
+        : '已保存：密钥写入凭据存储，provider 登记完成，即时生效。',
+    };
   } catch (error) {
     if (error instanceof RpcError) {
       if (error.code === 'credential-rejected') {

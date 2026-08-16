@@ -29,8 +29,10 @@ export function diffJobs(
     const key = `${next.sessionId}:${job.id}`;
     const before = prev.get(key);
     // before === undefined = 首次见（基线回放）：只记录不通知；
-    // 见过运行态后转终态 = 真完成 → 通知
-    if (before !== undefined && before !== job.status && TERMINAL.includes(job.status)) {
+    // 非终态 → 终态 = 真完成 → 通知；
+    // 已是终态后的状态变化（如 failed→completed 归因修正）不再补发，防同一 job 双通知
+    const wasTerminal = before !== undefined && TERMINAL.includes(before);
+    if (before !== undefined && !wasTerminal && TERMINAL.includes(job.status)) {
       emitted.push({ sessionId: next.sessionId, jobId: job.id, status: job.status });
     }
     prev.set(key, job.status);

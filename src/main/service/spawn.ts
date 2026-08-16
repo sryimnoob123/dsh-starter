@@ -15,19 +15,27 @@ export function buildCommandArgs(options: SpawnOptions): string[] {
 export interface SpawnSpec {
   command: string;
   args: string[];
+  /**
+   * Windows 下是否需要 cmd.exe 包装：
+   * - .cmd/.bat（dsh.cmd / pnpm.cmd / PATH 全局 dsh）需要 shell；
+   * - node.exe 直跑不需要 shell——否则 child.kill() 只杀 cmd 包装、真服务进程存活并占端口（端口漂移根因）。
+   */
+  shell?: boolean;
 }
 
 export function buildSpawnSpec(
   options: SpawnOptions & { command?: string },
 ): SpawnSpec {
-  const raw = (options.command ?? 'pnpm dsh').split(' ').filter(Boolean);
+  // 默认走 PATH 上的 dsh 命令（managed 模式检测到的全局 dsh 就是它）；
+  // 'pnpm dsh' 是旧 checkout 时代的默认，managed 模式已无 checkout 路径
+  const raw = (options.command ?? 'dsh').split(' ').filter(Boolean);
   const command = raw[0];
   const prefixArgs = raw.slice(1);
   const tail = buildCommandArgs(options);
   // 当 executable 本身是 dsh（或前缀已含 dsh）时，去掉 tail 里重复的 'dsh'
   const commandIsDsh = command === 'dsh' || /[\\/]dsh(\.cmd|\.exe)?$/.test(command);
   const hasDshPrefix = prefixArgs.includes('dsh') || commandIsDsh;
-  return { command, args: [...prefixArgs, ...(hasDshPrefix ? tail.slice(1) : tail)] };
+  return { command, args: [...prefixArgs, ...(hasDshPrefix ? tail.slice(1) : tail)], shell: process.platform === 'win32' };
 }
 
 /**
@@ -39,7 +47,8 @@ export function buildNodeSpawnSpec(options: {
   dshEntry: string;
   port: number;
 }): SpawnSpec {
-  return { command: options.nodeExe, args: [options.dshEntry, 'web', '--port', String(options.port)] };
+  // shell:false —— node.exe 直跑；否则 Windows 下 child.kill() 只杀 cmd 包装，真服务进程存活
+  return { command: options.nodeExe, args: [options.dshEntry, 'web', '--port', String(options.port)], shell: false };
 }
 
 export function buildSpawnEnv(

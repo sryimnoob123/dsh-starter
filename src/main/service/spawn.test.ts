@@ -12,10 +12,11 @@ describe('buildCommandArgs（启动命令 = 稳定边界 §4.1）', () => {
 });
 
 describe('buildSpawnSpec', () => {
-  it('uses pnpm by default with a deduplicated dsh prefix', () => {
+  it('uses dsh by default (PATH 全局 dsh，managed 模式无 checkout)', () => {
     expect(buildSpawnSpec({ port: 3080 })).toEqual({
-      command: 'pnpm',
-      args: ['dsh', 'web', '--port', '3080'],
+      command: 'dsh',
+      args: ['web', '--port', '3080'],
+      shell: process.platform === 'win32',
     });
   });
 
@@ -23,6 +24,7 @@ describe('buildSpawnSpec', () => {
     expect(buildSpawnSpec({ port: 3080, command: 'dsh' })).toEqual({
       command: 'dsh',
       args: ['web', '--port', '3080'],
+      shell: process.platform === 'win32',
     });
   });
 });
@@ -39,12 +41,13 @@ describe('buildSpawnEnv', () => {
 });
 
 describe('buildNodeSpawnSpec（自备 Node 直跑 DSH CLI）', () => {
-  it('node <dsh入口> web --port <n>', () => {
+  it('node <dsh入口> web --port <n>，shell:false（kill 才杀得到真进程）', () => {
     expect(
       buildNodeSpawnSpec({ nodeExe: 'C:/rt/node/node.exe', dshEntry: 'C:/d/dsh/lib/bin.js', port: 3080 }),
     ).toEqual({
       command: 'C:/rt/node/node.exe',
       args: ['C:/d/dsh/lib/bin.js', 'web', '--port', '3080'],
+      shell: false,
     });
   });
 });

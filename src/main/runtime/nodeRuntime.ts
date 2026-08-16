@@ -56,3 +56,13 @@ export function localNodeExe(dir: string, platform: NodeJS.Platform = process.pl
 export function localNpmCmd(dir: string, platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32' ? join(dir, 'npm.cmd') : posix.join(dir, 'bin', 'npm');
 }
+
+/**
+ * npm 的 CLI JS 入口（node 直跑用）：`<node目录>/node_modules/npm/bin/npm-cli.js`。
+ * 系统 node 与自下载 node zip 结构一致。用它替代 npm.cmd + shell 启动——
+ * Windows 下 npm.cmd 经 cmd.exe 按 GBK 解析命令行，中文/空格前缀路径会被拆坏
+ * （实测 `Invalid tag name "测试"`），node 直跑（shell:false）则 Unicode 安全。
+ */
+export function localNpmCli(dir: string): string {
+  return join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+}

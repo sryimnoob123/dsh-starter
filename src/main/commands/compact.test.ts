@@ -35,12 +35,22 @@ describe('buildCompactPromptContent / buildCompactPayload（session.prompt 斜�
 });
 
 describe('describeCompactFeedback（响应 command.text 提取）', () => {
-  it('成功命令带文本时返回文本', () => {
-    expect(describeCompactFeedback({ accepted: true, command: { kind: 'success', text: 'Done.' } })).toBe('Done.');
+  it('成功命令带文本时返回 success', () => {
+    expect(describeCompactFeedback({ accepted: true, command: { kind: 'success', text: 'Done.' } })).toEqual({
+      kind: 'success',
+      text: 'Done.',
+    });
   });
 
-  it.each([null, undefined, {}, { accepted: true }, { command: { kind: 'success' } }, { command: { kind: 'other', text: 'x' } }])(
-    '无文本 → null（%s）',
+  it('忙时 command-error 识别为 error（不再误报成功）', () => {
+    expect(describeCompactFeedback({ accepted: true, command: { kind: 'error', text: 'busy' } })).toEqual({
+      kind: 'error',
+      text: 'busy',
+    });
+  });
+
+  it.each([null, undefined, {}, { accepted: true }, { command: { kind: 'success' } }, { command: { kind: 'other', text: 'x' } }, { command: { kind: 'success', text: '' } }])(
+    '无文本/未知 kind → null（%s）',
     (v) => {
       expect(describeCompactFeedback(v)).toBeNull();
     },

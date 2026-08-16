@@ -25,6 +25,11 @@ describe('redact（日志凭据脱敏，架构文档 §8.5）', () => {
     expect(redact(line)).toBe(line);
     expect(redact('port=3080, sk (short)')).toBe('port=3080, sk (short)');
   });
+
+  it('不误伤含 KEY 子串的非凭据（MONKEY/KEYWORD）', () => {
+    const line = 'MONKEY=some-harmless-long-value KEYWORD=another-harmless-value';
+    expect(redact(line)).toBe(line);
+  });
 });
 
 describe('buildLogLine', () => {

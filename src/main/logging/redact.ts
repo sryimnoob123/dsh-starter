@@ -6,7 +6,9 @@
 
 const SK_KEY = /\bsk-[A-Za-z0-9_-]{20,}\b/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b/g;
-const KEY_VALUE = /\b([A-Z0-9_]*KEY[A-Z0-9_]*)=[A-Za-z0-9._~+/=-]{16,}\b/g;
+// 收窄为常见凭据词（KEY/TOKEN/SECRET/PASSWORD/PASSWD/CREDENTIAL，可带前缀后缀），
+// 不再匹配 MONKEY= / KEYWORD= 这类含 KEY 子串的非凭据（误伤）
+const KEY_VALUE = /\b((?:[A-Z0-9_]+_)?(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)(?:_[A-Z0-9_]+)?)=[A-Za-z0-9._~+/=-]{16,}\b/g;
 
 export function redact(line: string): string {
   return line.replace(SK_KEY, '[REDACTED]').replace(BEARER, 'Bearer [REDACTED]').replace(KEY_VALUE, '$1=[REDACTED]');
