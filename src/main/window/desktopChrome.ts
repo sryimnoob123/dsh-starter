@@ -2,9 +2,8 @@
  * 桌面外观注入（[D83]/[D84]/[D85] + 用户拍板：无标题栏）——壳与截屏验证脚本共用，防止两处漂移。
  * - FLOATING_CONTROLS_SCRIPT：右上角悬浮窗口按钮（设置齿轮 + 最小化/最大化/关闭），
  *   配色走 --dsh-desktop-* 变量，整窗随主题无缝换肤（深色=白鲸风暖色、浅色=暖沙）。
- * - DSH_HEADER_DRAG_SCRIPT：DSH 页面无标题栏后的拖拽区 = 其自身顶部 header
- *   （Codex 同款思路：应用头部就是拖拽区；header 内交互元素 no-drag，右侧留出悬浮按钮位）。
- * - PAGE_DRAG_SCRIPT：壳本地页（file://）顶部透明拖拽条（避开右上角按钮）。
+ * - DRAG_BAR_SCRIPT：顶部 6px 原生拖拽条（-webkit-app-region: drag）——替代旧 JS setPosition
+ *   拖拽（旧方案在 150% 缩放下窗口会漂移变大、且无双击最大化；原生拖拽自带双击最大化）。
  * - DESKTOP_CSS：DSH 页面注入（深色细滚动条变量化；不再下移内容——标题栏已删除）。
  * - PAGE_THEME_SCRIPT / PAGE_THEME_CSS：壳本地页面的主题初始化（按 ?uiTheme= 落 html[data-dsh-theme]）。
  */
@@ -55,82 +54,68 @@ export const FLOATING_CONTROLS_SCRIPT = `(function () {
 })();`;
 
 /**
- * DSH 页面拖拽区（无标题栏后）：JS 拖拽，不碰页面布局。
- * 旧方案 querySelector('header') + -webkit-app-region:drag 在 DSH 升级为三栏 AppFrame 后失效
- * （主界面无应用级 header）；padding-top 下移内容又会撑出滚动条。
- * 现改为：在窗口顶部 28px 区域按住鼠标 → 通过 dshShell.windowControl 通知主进程跟随移动窗口，
- * 完全不改变 DSH 页面布局（无滚动条、无遮挡）。
+ * 顶部原生拖拽条（-webkit-app-region: drag）——替代旧的 JS setPosition 拖拽。
+ *
+ * 为什么换掉 JS 拖拽：旧方案 16ms setPosition 跟随，在 150% 缩放下 DIP/物理像素换算漂移
+ * → 按住标题区窗口"自己越变越大"；且旧方案没有双击最大化。原生 app-region:drag 由 Windows
+ * 自己处理拖拽，无漂移、自带双击最大化、正确配合缩放边与 Aero 贴靠。
+ *
+ * 高度 24px：DSH 顶部是会话 header（面包屑/标签按钮），没有空白标题栏；拖拽条盖住顶部 24px，
+ * 但脚本会把顶部 24px 内的交互元素（button/a/input/role=tab…）动态标 no-drag 并抬到拖拽条之上，
+ * 让它们仍可点击；空白处仍是拖拽区。悬浮按钮 z-index 更高、no-drag，不受影响。
  */
-export const DSH_HEADER_DRAG_SCRIPT = `(function () {
-  var DRAG_ZONE = 28;
-  var dragging = false;
-  function inZone(e) {
-    return e.clientY >= 0 && e.clientY <= DRAG_ZONE;
+export const DRAG_BAR_SCRIPT = `(function () {
+  if (document.getElementById('dsh-drag-bar')) return;
+  var DRAG_H = 24;
+  var bar = document.createElement('div');
+  bar.id = 'dsh-drag-bar';
+  bar.style.cssText =
+    'position:fixed;top:0;left:0;right:0;height:' + DRAG_H + 'px;z-index:10;-webkit-app-region:drag;';
+  document.documentElement.appendChild(bar);
+
+  // 顶部 24px 内的交互元素标 no-drag 并抬到拖拽条之上，保持可点击
+  var SEL = 'button,a,input,select,textarea,label,[role=button],[role=tab],[contenteditable="true"]';
+  function patch() {
+    var els = document.querySelectorAll(SEL);
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.getAttribute('data-dsh-nodrag')) continue;
+      var r = el.getBoundingClientRect();
+      if (r.bottom <= 0 || r.top >= DRAG_H) continue; // 不在顶部条内
+      el.setAttribute('data-dsh-nodrag', '1');
+      el.style.webkitAppRegion = 'no-drag';
+      if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+      el.style.zIndex = '11';
+    }
+    // 给右上角悬浮窗口按钮留位：顶部会话 header 的标题行加右 padding，
+    // 避免 DSH 的「导出/下载对话」等按钮和悬浮按钮重叠
+    var headers = document.querySelectorAll('header');
+    for (var k = 0; k < headers.length; k++) {
+      var h = headers[k];
+      if (h.getAttribute('data-dsh-padded')) continue;
+      var hr = h.getBoundingClientRect();
+      if (hr.top > 8 || hr.bottom <= 0) continue; // 只处理贴顶的 header
+      var row = h.firstElementChild;
+      if (!row) continue;
+      h.setAttribute('data-dsh-padded', '1');
+      row.style.paddingRight = '150px';
+    }
   }
-  document.addEventListener('mousedown', function (e) {
-    // 只有鼠标左键 + 顶部 28px 空白区 + 不落在按钮/链接/输入等交互元素上，才进入拖拽
-    if (e.button !== 0) return;
-    if (!inZone(e)) return;
-    var t = e.target;
-    if (t && t.closest && t.closest('button,a,input,select,textarea,[role=button],[role=tab],[contenteditable="true"]')) return;
-    var w = window.dshShell;
-    if (!w || typeof w.windowControl !== 'function') return;
-    dragging = true;
-    try { w.windowControl('drag-start'); } catch (err) { dragging = false; }
-  });
-  document.addEventListener('mouseup', function () {
-    if (!dragging) return;
-    dragging = false;
-    var w = window.dshShell;
-    if (w && typeof w.windowControl === 'function') {
-      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
-    }
-  });
-  // 失焦/离开窗口时兜底结束拖拽，避免窗口"粘住"鼠标
-  window.addEventListener('blur', function () {
-    if (!dragging) return;
-    dragging = false;
-    var w = window.dshShell;
-    if (w && typeof w.windowControl === 'function') {
-      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
-    }
+  var timer = null;
+  function schedule() {
+    if (timer) return;
+    timer = setTimeout(function () { timer = null; patch(); }, 120);
+  }
+  schedule();
+  new MutationObserver(schedule).observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style'],
   });
 })();`;
 
-/** 壳本地页（file://）顶部拖拽：与 DSH 页面同款 JS 拖拽（不碰布局，右上角让出悬浮按钮） */
-export const PAGE_DRAG_SCRIPT = `(function () {
-  var DRAG_ZONE = 28;
-  var dragging = false;
-  function inZone(e) {
-    return e.clientY >= 0 && e.clientY <= DRAG_ZONE;
-  }
-  document.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;
-    if (!inZone(e)) return;
-    var t = e.target;
-    if (t && t.closest && t.closest('button,a,input,select,textarea,[role=button],[contenteditable="true"]')) return;
-    var w = window.dshShell;
-    if (!w || typeof w.windowControl !== 'function') return;
-    dragging = true;
-    try { w.windowControl('drag-start'); } catch (err) { dragging = false; }
-  });
-  document.addEventListener('mouseup', function () {
-    if (!dragging) return;
-    dragging = false;
-    var w = window.dshShell;
-    if (w && typeof w.windowControl === 'function') {
-      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
-    }
-  });
-  window.addEventListener('blur', function () {
-    if (!dragging) return;
-    dragging = false;
-    var w = window.dshShell;
-    if (w && typeof w.windowControl === 'function') {
-      try { w.windowControl('drag-end'); } catch (err) { /* 忽略 */ }
-    }
-  });
-})();`;
+
 
 /**
  * 轨迹视图底部清理（用户拍板）：切到"轨迹"标签时，底部固定层（任务卡 + 输入框，

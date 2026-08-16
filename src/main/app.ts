@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, screen, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,13 +24,13 @@ import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { saveConnectionToService } from './onboarding/dshConfig.js';
 import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_FALLBACK, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
+import { ensureWinTerminalInspector } from './install/winInspectorPlugin.js';
 import { ensureNodeRuntime, type NodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
   DESKTOP_CSS,
-  DSH_HEADER_DRAG_SCRIPT,
+  DRAG_BAR_SCRIPT,
   FLOATING_CONTROLS_SCRIPT,
-  PAGE_DRAG_SCRIPT,
   PAGE_THEME_CSS,
   PAGE_THEME_SCRIPT,
   VIEW_TAB_SCRIPT,
@@ -110,9 +110,6 @@ let mainWindow: BrowserWindow | null = null;
 /** 应用显示名（窗口标题/托盘/通知；与 package.json productName 一致，[D91] 命名 deepseek-harness-starter） */
 const APP_NAME = 'deepseek-harness-starter';
 let serviceProcess: ReturnType<typeof spawn> | null = null;
-/** 无边框窗口 JS 拖拽状态（[D84]：drag-start 记录起点，定时器跟随鼠标移动窗口） */
-let dragState: { winX: number; winY: number; mouseX: number; mouseY: number } | null = null;
-let dragTimer: NodeJS.Timeout | null = null;
 /** 用户是否正在退出（服务自愈时避免退出过程中重启） */
 let quitting = false;
 /** 壳/用户主动 kill 服务（停止/重启/换端口）时置位：exit 回调据此不再触发崩溃自愈 */
@@ -923,6 +920,23 @@ async function startShell(win: BrowserWindow): Promise<void> {
     store.save(config);
     writeLog('shell', `service ready on port ${port}`);
     restartAttempts = 0;
+    // [bugfix] win32 首次启动：把捆绑的 win-terminal-inspector 插件装进 web profile，
+    // 修掉 DSH 在 Windows 上 spawnTerminal 抛 "terminal inspection is unsupported on platform win32" 的缺口。
+    // 服务就绪后 profile 已初始化；patch 写入走 DSH 的 HMR 热加载，无需重启。装一次记一次（可逆、不打扰）。
+    if (process.platform === 'win32' && !config.winTerminalInspectorInstalled) {
+      try {
+        const installed = ensureWinTerminalInspector({
+          dshHome: desktopDshHome(shellInstallDir()),
+          sourceDir: join(app.getAppPath(), 'vendor', 'win-terminal-inspector'),
+        });
+        if (installed) writeLog('shell', 'win-terminal-inspector plugin installed into web profile');
+        config.winTerminalInspectorInstalled = true;
+        store.save(config);
+      } catch (error) {
+        // 装失败不阻塞启动；下次启动会重试（flag 未置位）
+        writeLog('shell', `win-terminal-inspector install failed: ${String(error)}`);
+      }
+    }
     if (config.onboardingDone) {
       await loadUrl(win, `http://127.0.0.1:${port}`);
     } else {
@@ -1059,11 +1073,11 @@ function createWindow(): BrowserWindow {
     if (url.startsWith('file://')) {
       win.webContents.executeJavaScript(PAGE_THEME_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
-      win.webContents.executeJavaScript(PAGE_DRAG_SCRIPT).catch(() => undefined);
+      win.webContents.executeJavaScript(DRAG_BAR_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(PAGE_THEME_CSS).catch(() => undefined);
     } else if (url.startsWith('http://127.0.0.1')) {
       win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
-      win.webContents.executeJavaScript(DSH_HEADER_DRAG_SCRIPT).catch(() => undefined);
+      win.webContents.executeJavaScript(DRAG_BAR_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(VIEW_TAB_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(DESKTOP_CSS).catch(() => undefined);
       win.webContents.insertCSS(CODEX_SKIN_CSS).catch(() => undefined);
@@ -1427,29 +1441,6 @@ const shellOps: ShellOps = {
     if (action === 'minimize') win.minimize();
     else if (action === 'toggle-maximize') (win.isMaximized() ? win.unmaximize() : win.maximize());
     else if (action === 'close') win.close(); // close 事件 → 缩托盘（[FR-3.1]）
-    else if (action === 'drag-start') {
-      // 无边框窗口 JS 拖拽（[D84]）：记录窗口当前位置与鼠标屏幕位置，开始跟随
-      const [wx, wy] = win.getPosition();
-      const cursor = screen.getCursorScreenPoint();
-      dragState = { winX: wx, winY: wy, mouseX: cursor.x, mouseY: cursor.y };
-      // 启动跟随定时器（16ms ≈ 60fps）：窗口位置 = 起点 + 鼠标相对起点的位移
-      if (dragTimer) clearInterval(dragTimer);
-      dragTimer = setInterval(() => {
-        const w = mainWindow;
-        if (!w || w.isDestroyed() || !dragState) return;
-        if (w.isMaximized()) return; // 最大化时不拖
-        const cur = screen.getCursorScreenPoint();
-        const nx = dragState.winX + (cur.x - dragState.mouseX);
-        const ny = dragState.winY + (cur.y - dragState.mouseY);
-        w.setPosition(nx, ny);
-      }, 16);
-    } else if (action === 'drag-end') {
-      dragState = null;
-      if (dragTimer) {
-        clearInterval(dragTimer);
-        dragTimer = null;
-      }
-    }
   },
   saveConnection: async (cfg) => {
     const port = getStore().load().port ?? 3080;

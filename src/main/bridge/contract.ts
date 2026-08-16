@@ -279,10 +279,10 @@ export function parseInstallPhase(raw: unknown): InstallPhase | null {
   return typeof raw === 'string' && phases.includes(raw) ? (raw as InstallPhase) : null;
 }
 
-/** 窗口控制动作（自绘标题栏：[D84]；drag-start/drag-end = 无边框窗口 JS 拖拽，[D84]） */
-export type WindowAction = 'minimize' | 'toggle-maximize' | 'close' | 'drag-start' | 'drag-end';
+/** 窗口控制动作（自绘标题栏：[D84]；拖拽已改原生 app-region，无需 drag-start/drag-end） */
+export type WindowAction = 'minimize' | 'toggle-maximize' | 'close';
 
 export function parseWindowAction(raw: unknown): WindowAction | null {
-  const actions: readonly string[] = ['minimize', 'toggle-maximize', 'close', 'drag-start', 'drag-end'];
+  const actions: readonly string[] = ['minimize', 'toggle-maximize', 'close'];
   return typeof raw === 'string' && actions.includes(raw) ? (raw as WindowAction) : null;
 }

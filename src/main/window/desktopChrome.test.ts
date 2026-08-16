@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   DESKTOP_CSS,
-  DSH_HEADER_DRAG_SCRIPT,
+  DRAG_BAR_SCRIPT,
   FLOATING_CONTROLS_SCRIPT,
-  PAGE_DRAG_SCRIPT,
   PAGE_THEME_CSS,
   PAGE_THEME_SCRIPT,
   VIEW_TAB_SCRIPT,
@@ -33,8 +32,7 @@ function bracesBalanced(code: string): boolean {
 describe('desktopChrome 注入脚本（整窗外观，[D83]/[D84]/[D85]）', () => {
   it.each([
     ['FLOATING_CONTROLS_SCRIPT', FLOATING_CONTROLS_SCRIPT],
-    ['DSH_HEADER_DRAG_SCRIPT', DSH_HEADER_DRAG_SCRIPT],
-    ['PAGE_DRAG_SCRIPT', PAGE_DRAG_SCRIPT],
+    ['DRAG_BAR_SCRIPT', DRAG_BAR_SCRIPT],
     ['PAGE_THEME_SCRIPT', PAGE_THEME_SCRIPT],
     ['VIEW_TAB_SCRIPT', VIEW_TAB_SCRIPT],
     ['DESKTOP_CSS', DESKTOP_CSS],
@@ -52,15 +50,21 @@ describe('desktopChrome 注入脚本（整窗外观，[D83]/[D84]/[D85]）', () 
     expect(FLOATING_CONTROLS_SCRIPT).not.toContain('open-settings');
   });
 
-  it('拖拽区脚本：JS 拖拽（mousedown→drag-start / mouseup→drag-end），不碰页面布局', () => {
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('drag-start');
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('drag-end');
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('windowControl');
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('mousedown');
-    expect(DSH_HEADER_DRAG_SCRIPT).toContain('mouseup');
-    // 不再用 CSS app-region / 下移内容（避免滚动条）
-    expect(DSH_HEADER_DRAG_SCRIPT).not.toContain('-webkit-app-region');
-    expect(DSH_HEADER_DRAG_SCRIPT).not.toContain('padding-top');
+  it('拖拽条 = 原生 -webkit-app-region: drag（无 JS setPosition、无双击最大化的旧问题）', () => {
+    expect(DRAG_BAR_SCRIPT).toContain('-webkit-app-region:drag');
+    expect(DRAG_BAR_SCRIPT).toContain('dsh-drag-bar');
+    expect(DRAG_BAR_SCRIPT).toContain('position:fixed;top:0');
+    // 顶部交互元素动态标 no-drag + 抬到拖拽条之上，保持可点击
+    expect(DRAG_BAR_SCRIPT).toContain('no-drag');
+    expect(DRAG_BAR_SCRIPT).toContain('MutationObserver');
+    expect(DRAG_BAR_SCRIPT).toContain('getBoundingClientRect');
+    // 给右上角悬浮窗口按钮留位：header 标题行加右 padding，避免导出/下载按钮重叠
+    expect(DRAG_BAR_SCRIPT).toContain('paddingRight');
+    expect(DRAG_BAR_SCRIPT).toContain('firstElementChild');
+    // 不再走 JS 拖拽（mousedown/setPosition 循环）——那是 150% 缩放下窗口漂移变大的根因
+    expect(DRAG_BAR_SCRIPT).not.toContain('mousedown');
+    expect(DRAG_BAR_SCRIPT).not.toContain('drag-start');
+    expect(DRAG_BAR_SCRIPT).not.toContain('setPosition');
   });
 
   it('轨迹视图脚本：选中轨迹隐藏 composer 底部层，锚点不依赖哈希前缀', () => {

@@ -21,6 +21,8 @@ export interface ShellConfig {
   prompt?: { includeHarnessIdentity?: boolean; persona?: string };
   /** 界面主题（[D83]/[D85] 扩展：跟随系统/深色/浅色；默认跟随系统） */
   uiTheme?: 'system' | 'dark' | 'light';
+  /** 捆绑的 win-terminal-inspector 插件是否已装进 web profile（win32 首启装一次，[bugfix] 持久终端） */
+  winTerminalInspectorInstalled?: boolean;
 }
 
 const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };

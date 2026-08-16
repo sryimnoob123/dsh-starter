@@ -43,7 +43,12 @@ The shell only owns four things: **window**, **tray**, **notifications**, and **
 - 📁 File-path menu + drag files into chat as `@path` references
 - 🚀 First-run onboarding wizard (model & API connection)
 - 🧩 Node.js auto-provisioning — downloads a release if no system Node
+- 🪟 Windows persistent-terminal fix — bundles the `win-terminal-inspector` plugin (auto-installed on first launch) to fix DSH's missing Windows terminal inspector
 - 🔒 Localhost only — bound to `127.0.0.1`
+
+### Known limitations
+
+- **Persistent terminal on Windows needs the "Full access" sandbox.** The persistent `bash` tool (Git Bash) only starts when the session's permission preset is **Full access** (`danger-full-access`). Under the default `Workspace Write` preset, Git Bash (MSYS) cannot create its signal pipe and the tool reports `PTY shell exited during startup`. To use the persistent terminal, switch the session's permission preset to "Full access" (or run `/permission danger-full-access`) — the trade-off is that shell commands then run without the file sandbox.
 
 ### Install
 
@@ -64,6 +69,10 @@ pnpm dist          # build the Windows installer (bundles DSH)
 ### License
 
 [MIT](LICENSE). Independent, community-maintained project — not affiliated with or endorsed by DeepSeek. The whale logo used as the app icon is a DeepSeek asset, included only to identify the upstream project.
+
+### Acknowledgments
+
+- [dsh-win-terminal-inspector](https://github.com/clearkurt/dsh-win-terminal-inspector) (MIT, © 2026 clearkurt) — bundled **unmodified** to fix DSH's missing Windows terminal inspector. Source, license, and provenance are kept in `vendor/win-terminal-inspector/`.
 
 ---
 
@@ -104,6 +113,10 @@ DeepSeek Harness 的极简桌面壳（[Electron](https://www.electronjs.org/)）
 - 🧩 Node.js 自动补齐（无系统 Node 时自动下载发行版）
 - 🔒 仅监听本机（`127.0.0.1`）
 
+### 已知限制
+
+- **Windows 持久终端需要「Full access（完全访问）」沙箱。** 持久化 `bash` 工具（Git Bash）只有在会话权限预设为 **Full access（`danger-full-access`）** 时才能启动；默认的 Workspace Write 预设下，Git Bash（MSYS）建不了信号管道，工具会报 `PTY shell exited during startup`。要用持久终端，把会话权限预设切成「Full access」（或执行 `/permission danger-full-access`）即可——代价是 shell 命令不再受文件沙箱约束。
+
 ### 安装
 
 从 [Releases](https://github.com/sryimnoob123/dsh-starter/releases) 下载安装包运行。首次启动走一遍简短向导（模型 + API 连接）；之后双击图标即进入窗口。
@@ -123,6 +136,10 @@ pnpm dist          # 打 Windows 安装包（内置 DSH）
 ### 许可证
 
 [MIT](LICENSE)。独立社区项目，与 DeepSeek 无隶属关系。应用图标为 DeepSeek 官方鲸鱼，仅用于标识上游项目，版权归 DeepSeek。
+
+### 致谢
+
+- [dsh-win-terminal-inspector](https://github.com/clearkurt/dsh-win-terminal-inspector)（MIT，© 2026 clearkurt）——内置以修复 DSH 缺失的 Windows 终端检查器，**原样使用、未做修改**。源码、许可与溯源均保留在 `vendor/win-terminal-inspector/`。
 
 ---
 
