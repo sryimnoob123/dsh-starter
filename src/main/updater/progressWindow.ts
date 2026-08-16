@@ -54,8 +54,8 @@ function currentUiTheme(): 'dark' | 'light' {
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
 }
 
-function buildWindow(): BrowserWindow {
-  const theme = currentUiTheme();
+function buildWindow(uiTheme?: 'dark' | 'light'): BrowserWindow {
+  const theme = uiTheme ?? currentUiTheme();
   const win = new BrowserWindow({
     width: 400,
     height: 300,
@@ -85,10 +85,10 @@ function buildWindow(): BrowserWindow {
   return win;
 }
 
-function ensureWindow(): BrowserWindow | null {
+function ensureWindow(uiTheme?: 'dark' | 'light'): BrowserWindow | null {
   if (updateWindow && !updateWindow.isDestroyed()) return updateWindow;
   try {
-    updateWindow = buildWindow();
+    updateWindow = buildWindow(uiTheme);
   } catch {
     return null;
   }
@@ -106,9 +106,9 @@ function pushState(state: UpdateState): void {
  * - 用户隐藏过（dismissedSession）→ 静默更新状态，不再弹出（托盘/通知兜底）；
  * - 同一 phase 的进度帧只更新内容，不反复 show/focus 打扰。
  */
-export function showUpdateWindow(state: UpdateState): void {
+export function showUpdateWindow(state: UpdateState, uiTheme?: 'dark' | 'light'): void {
   latestState = state;
-  const win = ensureWindow();
+  const win = ensureWindow(uiTheme);
   if (!win) return;
   const phaseChanged = lastPhase !== state.phase;
   if (phaseChanged) lastPhase = state.phase;
