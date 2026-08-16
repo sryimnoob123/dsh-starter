@@ -105,11 +105,16 @@ export function setupAutoUpdater(options?: { onPendingChange?: () => void; uiThe
 }
 
 /** 托盘"检查更新"（[FR-27] 常用指令入口）：手动触发一次检查；结果以进度窗/通知回执 */
+let lastManualCheckAt = 0;
 export function checkForUpdatesManually(): void {
   if (!app.isPackaged) {
     new Notification({ title: app.getName(), body: '开发模式不检查更新（发布通道仅打包版可用）。' }).show();
     return;
   }
+  // 防抖：10s 内重复触发忽略（合成点击/误连点兜底，避免每几秒刷一次 latest.yml）
+  const now = Date.now();
+  if (now - lastManualCheckAt < 10_000) return;
+  lastManualCheckAt = now;
   manualCheckPending = true;
   autoUpdater.checkForUpdates().catch(() => {
     manualCheckPending = false;
