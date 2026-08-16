@@ -18,11 +18,11 @@ import { redact, buildLogLine } from './logging/redact.js';
 import { maybeRotateLog } from './logging/rotate.js';
 import { readLogTail } from './logging/readLog.js';
 import { logFile } from './logging/paths.js';
-import { setupAutoUpdater, checkForUpdatesManually } from './updater/index.js';
+import { checkForUpdatesManually, getPendingUpdateVersion, installPendingUpdate, setupAutoUpdater } from './updater/index.js';
 import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from './bridge/register.js';
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
-import { saveConnectionToService } from './onboarding/dshConfig.js';
+import { applyDefaultPermission, saveConnectionToService } from './onboarding/dshConfig.js';
 import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_FALLBACK, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
 import { ensureWinTerminalInspector } from './install/winInspectorPlugin.js';
 import { ensureNodeRuntime, type NodeRuntime } from './runtime/nodeProvision.js';
@@ -323,8 +323,18 @@ trayItems.register({
   title: '检查更新',
   order: 45,
   click: () => {
-    // [FR-27] 手动检查更新：打包版走发布通道，结果以通知回执
+    // [FR-27] 手动检查更新：打包版走发布通道，结果以进度窗/通知回执
     checkForUpdatesManually();
+  },
+});
+
+// [O1] 已下载待安装版本时显示（rebuildTrayMenu 按 getPendingUpdateVersion() 过滤 + 动态标题）
+trayItems.register({
+  id: 'install-update',
+  title: '安装更新',
+  order: 44,
+  click: () => {
+    installPendingUpdate();
   },
 });
 
@@ -389,20 +399,32 @@ function updateTrayState(): void {
   if (tray) {
     const running = serviceProcess !== null;
     tray.setToolTip(running ? `${APP_NAME} — 服务运行中` : `${APP_NAME} — 服务已停止`);
+    // [O1] 待装版本变化时重建菜单（托盘「安装更新 vX」动态出现/消失）
+    if (mainWindow && !mainWindow.isDestroyed()) rebuildTrayMenu(mainWindow);
   }
 }
 
 let tray: Tray | null = null;
 
+/** 托盘菜单模板：install-update 项仅在“有已下载待装版本”时出现，标题带版本号 */
+function buildTrayTemplate(win: BrowserWindow): Electron.MenuItemConstructorOptions[] {
+  return trayItems
+    .list()
+    .filter((item) => item.id !== 'install-update' || getPendingUpdateVersion() !== null)
+    .map((item) => ({
+      label: item.id === 'install-update' ? `安装更新 v${getPendingUpdateVersion()}` : item.title,
+      click: () => item.click({ window: win, stopService, quit: () => app.quit() }),
+    }));
+}
+
+/** 重建托盘菜单（待装版本变化、服务状态变化时调用；[O1] 动态「安装更新」入口） */
+function rebuildTrayMenu(win: BrowserWindow): void {
+  if (tray) tray.setContextMenu(Menu.buildFromTemplate(buildTrayTemplate(win)));
+}
+
 function setupTray(win: BrowserWindow): void {
   tray = new Tray(themeIcon());
-  const menu = Menu.buildFromTemplate(
-    trayItems.list().map((item) => ({
-      label: item.title,
-      click: () => item.click({ window: win, stopService, quit: () => app.quit() }),
-    })),
-  );
-  tray.setContextMenu(menu);
+  rebuildTrayMenu(win);
   tray.on('click', () => {
     win.show();
     win.focus();
@@ -936,6 +958,20 @@ async function startShell(win: BrowserWindow): Promise<void> {
         // 装失败不阻塞启动；下次启动会重试（flag 未置位）
         writeLog('shell', `win-terminal-inspector install failed: ${String(error)}`);
       }
+    }
+    // [O2-A] 新会话默认权限 = danger-full-access（持久终端开箱即用，用户拍板）。
+    // 服务就绪后 settings 可用；只写一次（permissionDefaultApplied 记账），失败下次启动重试，
+    // 成功后用户手改（回 workspace-write/其它）壳不再覆盖。
+    if (!config.permissionDefaultApplied) {
+      applyDefaultPermission(port)
+        .then((changed) => {
+          config.permissionDefaultApplied = true;
+          store.save(config);
+          writeLog('shell', changed ? 'permission default set to danger-full-access' : 'permission default already set, recorded');
+        })
+        .catch((error: unknown) => {
+          writeLog('shell', `permission default apply failed: ${String(error)}`);
+        });
     }
     if (config.onboardingDone) {
       await loadUrl(win, `http://127.0.0.1:${port}`);
@@ -1696,7 +1732,7 @@ if (!gotLock) {
     const win = createWindow();
     setupTray(win);
     registerBridge(shellOps);
-    setupAutoUpdater(); // [D78] 自动检查更新 + 自动下载（安装用户确认）
+    setupAutoUpdater({ onPendingChange: updateTrayState }); // [D78] 自动检查 + 自动下载（安装用户确认）；[O1] 托盘动态入口
     // 三态主题：操作系统深浅色变化时只刷新壳自身外观（图标/窗口底色）。
     // 不向 DSH 推送——主题单一事实源是 DSH 官方设置，用户在官方设置里的选择
     // 不能被壳覆盖；DSH 在跟随系统模式下会自行响应 OS 变化。

@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  applyDefaultPermission,
   buildDeepSeekPatch,
   buildProviderPatch,
   CREDENTIAL_REF,
   DEEPSEEK_CREDENTIAL_REF,
+  DEFAULT_PERMISSION_PRESET,
   isDeepSeekOfficialBaseUrl,
+  PERMISSION_SETTINGS_NS,
   PROVIDER_ID,
+  readPermissionDefault,
   saveConnectionToService,
 } from './dshConfig.js';
 
@@ -183,6 +187,90 @@ describe('saveConnectionToService', () => {
     const res = await saveConnectionToService(3080, cfg);
     expect(res.ok).toBe(false);
     expect(res.message).toContain('无法连接');
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('readPermissionDefault（settings.describe 归一）', () => {
+  it('取 value.defaultPreset', () => {
+    expect(readPermissionDefault({ value: { defaultPreset: 'workspace-write' } })).toBe('workspace-write');
+    expect(readPermissionDefault({ value: { defaultPreset: DEFAULT_PERMISSION_PRESET } })).toBe(
+      DEFAULT_PERMISSION_PRESET,
+    );
+  });
+
+  it('结构不符/缺失 → undefined', () => {
+    expect(readPermissionDefault(undefined)).toBeUndefined();
+    expect(readPermissionDefault(null)).toBeUndefined();
+    expect(readPermissionDefault({ value: {} })).toBeUndefined();
+    expect(readPermissionDefault({ value: { defaultPreset: 42 } })).toBeUndefined();
+  });
+});
+
+describe('applyDefaultPermission（O2-A：新会话默认 danger-full-access，只写一次）', () => {
+  function mockFetch(respond: unknown) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { rpcId: string };
+      return new Response(
+        JSON.stringify({ type: 'server-response', rpcId: body.rpcId, result: respond }),
+        { status: 200 },
+      );
+    });
+  }
+
+  it('出厂默认 workspace-write → settings.update 写 danger-full-access，返回 true', async () => {
+    // settings.describe 返回值 = { value: { defaultPreset } }（与壳读 ui-theme 同一形状）
+    const f = mockFetch({ ok: true, value: { value: { defaultPreset: 'workspace-write' } } });
+    vi.stubGlobal('fetch', f);
+    const changed = await applyDefaultPermission(3080, f);
+    expect(changed).toBe(true);
+    expect(f).toHaveBeenCalledTimes(2);
+    const updateCall = f.mock.calls[1];
+    expect(String(updateCall?.[0])).toContain('/api/settings.update');
+    const updateBody = JSON.parse(String((updateCall?.[1] as { body?: unknown })?.body));
+    expect(updateBody.payload).toEqual({
+      ns: PERMISSION_SETTINGS_NS,
+      patch: { defaultPreset: DEFAULT_PERMISSION_PRESET },
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('已是 danger-full-access → 不再写，返回 false', async () => {
+    const f = mockFetch({ ok: true, value: { value: { defaultPreset: DEFAULT_PERMISSION_PRESET } } });
+    vi.stubGlobal('fetch', f);
+    const changed = await applyDefaultPermission(3080, f);
+    expect(changed).toBe(false);
+    expect(f).toHaveBeenCalledTimes(1); // 只 describe，不 update
+    vi.unstubAllGlobals();
+  });
+
+  it('用户已显式选 read-only → 尊重用户不改，返回 false', async () => {
+    const f = mockFetch({ ok: true, value: { value: { defaultPreset: 'read-only' } } });
+    vi.stubGlobal('fetch', f);
+    const changed = await applyDefaultPermission(3080, f);
+    expect(changed).toBe(false);
+    expect(f).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('describe 失败 → 仍尝试写；写失败抛错（调用方记账，下次启动重试）', async () => {
+    const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body)) as { rpcId: string };
+      if (url.endsWith('/api/settings.describe')) {
+        return new Response(
+          JSON.stringify({
+            type: 'server-response',
+            rpcId: body.rpcId,
+            result: { ok: false, error: { code: 'boom', message: 'x' } },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error('service down');
+    });
+    vi.stubGlobal('fetch', f);
+    await expect(applyDefaultPermission(3080, f)).rejects.toThrow(/service down/);
     vi.unstubAllGlobals();
   });
 });

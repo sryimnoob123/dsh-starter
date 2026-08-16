@@ -109,3 +109,47 @@ export async function saveConnectionToService(
     return { ok: false, message: `无法连接 DSH 服务：${reason}。请确认服务已启动后重试。` };
   }
 }
+
+// ---------------------------------------------------------------------------
+// 新会话默认权限 = danger-full-access（O2-A，用户拍板：默认 Full access 让持久终端开箱即用）
+// 机制：DSH 的 General settings 存 permission.defaultPreset，影响"后续新 Web 会话"
+// （已打开的会话不变）。壳经 settings.update({ns:'permission'}) 写，与改主题同一条路。
+// 语义（用户拍板）：壳只写这一次（调用方按 shell-config 的 permissionDefaultApplied 记账），
+// 之后用户在设置里手改，壳不再覆盖。
+// ---------------------------------------------------------------------------
+export const PERMISSION_SETTINGS_NS = 'permission';
+export const DEFAULT_PERMISSION_PRESET = 'danger-full-access';
+
+/** settings.describe({ns:'permission'}) 响应 → 当前 defaultPreset（消息非预期/缺失 → undefined） */
+export function readPermissionDefault(raw: unknown): string | undefined {
+  const value = (raw as { value?: { defaultPreset?: unknown } } | null)?.value?.defaultPreset;
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * 让新会话默认权限 = danger-full-access（幂等）：
+ * - 已是目标值 → 不动，返回 false；
+ * - 用户已显式选过别的（read-only 等，非 DSH 出厂默认 workspace-write）→ 尊重用户，改不动，返回 false；
+ * - 否则写 defaultPreset=danger-full-access，返回 true。
+ * describe 失败（服务未就绪等）时仍尝试写——写失败会抛给调用方，由调用方记账/重试。
+ */
+export async function applyDefaultPermission(port: number, fetchImpl?: typeof fetch): Promise<boolean> {
+  const current = await callRpc({
+    port,
+    method: 'settings.describe',
+    payload: { ns: PERMISSION_SETTINGS_NS },
+    fetchImpl,
+  })
+    .then(readPermissionDefault)
+    .catch(() => undefined);
+  if (current === DEFAULT_PERMISSION_PRESET || (current !== undefined && current !== 'workspace-write')) {
+    return false;
+  }
+  await callRpc({
+    port,
+    method: 'settings.update',
+    payload: { ns: PERMISSION_SETTINGS_NS, patch: { defaultPreset: DEFAULT_PERMISSION_PRESET } },
+    fetchImpl,
+  });
+  return true;
+}
