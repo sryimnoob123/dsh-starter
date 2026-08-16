@@ -227,7 +227,7 @@ export const SETTINGS_EXTENSION_SCRIPT = `(function () {
       var persona = typeof state.persona === 'string' ? state.persona : '';
       document.getElementById('dsh-gp-persona-toggle').checked = persona.trim() !== '';
       document.getElementById('dsh-gp-persona').value = persona || webPersona();
-      document.getElementById('dsh-gp-notify').checked = state.notifyResult !== false;
+      document.getElementById('dsh-gp-notify').checked = state.notifyResult === true;
       var modeEl = document.getElementById('dsh-gp-mode');
       var modeHintEl = document.getElementById('dsh-gp-mode-hint');
       // managed 模式：壳自己管服务，改动保存即生效、重启按钮始终可点

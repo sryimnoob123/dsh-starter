@@ -54,6 +54,11 @@ describe('diffJobs（断线补偿 catch-up，架构文档 §4.4；基线回放�
     const prev = new Map<string, 'running'>();
     expect(diffJobs(prev, snapshot('s1', [{ id: 'fresh', status: 'completed' }]))).toEqual([]);
   });
+
+  it('终态后状态回归（failed→completed 归因修正）→ 不补发，防同一 job 双通知', () => {
+    const prev = new Map<string, 'running' | 'failed'>([['s1:j1', 'failed']]);
+    expect(diffJobs(prev, snapshot('s1', [{ id: 'j1', status: 'completed' }]))).toEqual([]);
+  });
 });
 
 describe('JobTracker（跨重连存活；评审 C1 修复）', () => {

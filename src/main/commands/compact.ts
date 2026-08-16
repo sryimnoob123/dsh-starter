@@ -40,12 +40,17 @@ export function parseCurrentSessionId(stored: string | null): string | null {
   return null;
 }
 
-/** 提取 session.prompt 响应里的命令反馈文本（command.success.text） */
-export function describeCompactFeedback(raw: unknown): string | null {
+/**
+ * 提取 session.prompt 响应里的命令反馈（command.success.text / command.error.text）。
+ * 忙时 DSH 返回 command-error（命令自身语义：压缩不排队）——必须识别为失败，
+ * 不能落进"已发送成功"的兜底文案。
+ */
+export function describeCompactFeedback(raw: unknown): { kind: 'success' | 'error'; text: string } | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const command = (raw as Record<string, unknown>).command;
   if (typeof command !== 'object' || command === null) return null;
   const c = command as Record<string, unknown>;
-  if (c.kind === 'success' && typeof c.text === 'string') return c.text;
+  if (typeof c.text !== 'string' || c.text === '') return null;
+  if (c.kind === 'success' || c.kind === 'error') return { kind: c.kind, text: c.text };
   return null;
 }

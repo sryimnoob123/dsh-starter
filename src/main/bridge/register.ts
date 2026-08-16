@@ -162,13 +162,13 @@ export function registerBridge(ops: ShellOps): void {
 
   ipcMain.handle(BRIDGE_API.filePathMenu, (_event, raw: unknown) => {
     const path = parseFilePathInput(raw);
-    if (!path) return;
+    if (!path) throw new Error(`filePathMenu: 非法参数 ${String(raw)}`);
     ops.filePathMenu(path);
   });
 
   ipcMain.handle(BRIDGE_API.filePathOpen, (_event, raw: unknown) => {
     const path = parseFilePathInput(raw);
-    if (!path) return;
+    if (!path) throw new Error(`filePathOpen: 非法参数 ${String(raw)}`);
     return ops.filePathOpen(path);
   });
 

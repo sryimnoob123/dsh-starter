@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, screen, shell, Tray } from 'electron';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -24,7 +24,7 @@ import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { saveConnectionToService } from './onboarding/dshConfig.js';
 import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_FALLBACK, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
-import { ensureNodeRuntime } from './runtime/nodeProvision.js';
+import { ensureNodeRuntime, type NodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
   DESKTOP_CSS,
@@ -115,6 +115,8 @@ let dragState: { winX: number; winY: number; mouseX: number; mouseY: number } | 
 let dragTimer: NodeJS.Timeout | null = null;
 /** 用户是否正在退出（服务自愈时避免退出过程中重启） */
 let quitting = false;
+/** 壳/用户主动 kill 服务（停止/重启/换端口）时置位：exit 回调据此不再触发崩溃自愈 */
+let intentionalKill = false;
 /** 服务死亡自愈重试次数（指数退避，就绪后清零） */
 let restartAttempts = 0;
 let restartTimer: NodeJS.Timeout | null = null;
@@ -350,7 +352,12 @@ function probePort(port: number): Promise<'dsh' | 'occupied' | 'free'> {
       const html = await res.text();
       return classifyProbe({ status: 'ok', html });
     })
-    .catch(() => classifyProbe({ status: 'refused' }))
+    .catch((error: unknown) => {
+      // 超时/半开端口（连接建立但无响应）= 不确定，按"占用"处理，避免误判 free 后 spawn 撞端口；
+      // 只有连接被明确拒绝（ECONNREFUSED）才算真空闲
+      const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
+      return classifyProbe({ status: aborted ? 'error' : 'refused' });
+    })
     .finally(() => clearTimeout(timer));
 }
 
@@ -373,6 +380,8 @@ async function stopService(): Promise<void> {
     : await dialog.showMessageBox(options);
   if (response !== 0) return;
   // Windows 无分发 SIGTERM：V1 = 终止子进程（架构文档 §5.3）
+  // 置位 intentionalKill：exit 回调不再当崩溃自愈重启（用户明确停止）
+  intentionalKill = true;
   serviceProcess.kill();
   serviceProcess = null;
   if (mainWindow) emitServiceStatus(mainWindow, 'stopped', '服务已停止');
@@ -407,9 +416,13 @@ function setupTray(win: BrowserWindow): void {
 // ---------------------------------------------------------------------------
 // 事件流订阅 + 通知（§4.4/§8.2；WebSocket 主通道 [D71]，重连即对齐 catch-up）
 // ---------------------------------------------------------------------------
+/** WebSocket 连接世代（重连去重：只有最新一代的 close 定时器才真正重连，防 socket 堆积） */
+let eventSocketGen = 0;
+
 function subscribeEvents(port: number): void {
   // 已订阅时跳过（retry 重跑启动序列会再次进入本函数，避免重复通知）
   if (eventSocket && eventSocket.readyState === WebSocket.OPEN) return;
+  const gen = ++eventSocketGen;
   eventSocket = new WebSocket(`ws://127.0.0.1:${port}/api/events.mux`);
   // 连接失败/被拒（如服务重启空窗期 ECONNREFUSED）→ 交给 close 重连，别变未捕获异常
   eventSocket.on('error', () => { /* 忽略；close 事件会触发重连 */ });
@@ -455,9 +468,10 @@ function subscribeEvents(port: number): void {
 
   eventSocket.on('close', () => {
     stallTrackersGlobal.clear();
-    // 断开 → 2s 后自动重连（浏览器同款指数退避的简化，[FR-25.5]）
+    // 断开 → 2s 后自动重连（浏览器同款指数退避的简化，[FR-25.5]）；
+    // 世代守卫：期间若已有更新一代的 socket（重连/重跑启动），本定时器作废
     setTimeout(() => {
-      if (serviceProcess) subscribeEvents(port);
+      if (serviceProcess && gen === eventSocketGen) subscribeEvents(port);
     }, 2000);
   });
 
@@ -577,15 +591,20 @@ async function runCompactCommand(win: BrowserWindow): Promise<void> {
   try {
     const value = await callRpc({ port, method: 'session.prompt', payload: buildCompactPayload(sessionId) });
     writeLog('shell', `compact command accepted for ${sessionId}`);
-    const text = describeCompactFeedback(value);
+    const feedback = describeCompactFeedback(value);
     // 已知脆弱点（评审确认）：'No compactable history yet.' 是 DSH command-compact
     // 的英文文案（未版本化的提示文字），仅做中文提示优化；匹配不上就原样展示或给通用文案
+    const text = feedback?.text ?? '';
     const body =
-      typeof text === 'string' && text.toLowerCase().includes('no compactable history')
-        ? '还没有可压缩的历史。'
-        : text
-          ? `压缩完成：${text}`
-          : '压缩指令已发送，结果会显示在会话里。';
+      feedback?.kind === 'error'
+        ? /busy|忙/i.test(text)
+          ? '当前会话正忙，稍后再试。'
+          : `压缩未执行：${text}`
+        : typeof feedback?.text === 'string' && text.toLowerCase().includes('no compactable history')
+          ? '还没有可压缩的历史。'
+          : typeof feedback?.text === 'string'
+            ? `压缩完成：${text}`
+            : '压缩指令已发送，结果会显示在会话里。';
     showActionNotice(body);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -616,7 +635,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // 检测本机已装 dsh：安装目录的 dsh（npm 安装版/打包内置版）/ PATH 里的全局 dsh。
   // 注意：不能看 process.cwd()/package.json——壳的 cwd 继承自启动它的进程，与 DSH 是否已装无关，会误判。
   const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
-  const hasLocalDsh = existsSync(installedBin);
+  // 本地 dsh 判据 = .bin shim 与真正用于启动的 lib/bin.js 都齐全（只认 .cmd 而 bin.js 缺失时 spawn 必失败）
+  const hasLocalDsh = existsSync(installedBin) && existsSync(dshEntryJsPath(dshDir));
   const dshDetected = hasLocalDsh || globalDsh;
 
   // managed 模式：只有「本地（安装目录/内置）没有、但 PATH 里有全局 dsh」才弹窗问用哪个。
@@ -672,6 +692,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // 先杀掉旧的壳服务（若有）：否则它占着记住的端口，每次重启都会被探测成"别人的 dsh"而漂到新端口
   let killedOldService = false;
   if (serviceProcess && !serviceProcess.killed) {
+    // 主动换服务：exit 回调不再触发自愈（本次启动序列自己负责）
+    intentionalKill = true;
     try {
       serviceProcess.kill();
     } catch {
@@ -797,12 +819,15 @@ async function startShell(win: BrowserWindow): Promise<void> {
       dshHome: desktopDshHome(shellInstallDir()),
     }),
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: process.platform === 'win32',
+    // shell 由 SpawnSpec 决定：node 直跑 false（kill 杀得到真进程），dsh.cmd/pnpm 才 true
+    shell: spec.shell ?? false,
   });
   serviceProcess = child;
 
   let ready = false;
   let probeTimer: NodeJS.Timeout | null = null;
+  let readyTimeout: NodeJS.Timeout | null = null;
+  let hardTimeout: NodeJS.Timeout | null = null;
   const readyPromise = new Promise<void>((resolve, reject) => {
     let buffer = '';
     const markReady = (): void => {
@@ -812,6 +837,14 @@ async function startShell(win: BrowserWindow): Promise<void> {
         clearInterval(probeTimer);
         probeTimer = null;
       }
+      if (readyTimeout) {
+        clearTimeout(readyTimeout);
+        readyTimeout = null;
+      }
+      if (hardTimeout) {
+        clearTimeout(hardTimeout);
+        hardTimeout = null;
+      }
       resolve();
     };
     const fail = (error: Error): void => {
@@ -819,6 +852,14 @@ async function startShell(win: BrowserWindow): Promise<void> {
       if (probeTimer) {
         clearInterval(probeTimer);
         probeTimer = null;
+      }
+      if (readyTimeout) {
+        clearTimeout(readyTimeout);
+        readyTimeout = null;
+      }
+      if (hardTimeout) {
+        clearTimeout(hardTimeout);
+        hardTimeout = null;
       }
       reject(error);
     };
@@ -838,12 +879,19 @@ async function startShell(win: BrowserWindow): Promise<void> {
     });
     child.stderr?.on('data', (chunk: Buffer) => writeLog('service', chunk.toString()));
     child.on('exit', (code) => {
+      const intentional = intentionalKill;
+      intentionalKill = false;
       if (!ready) fail(new Error(`dsh exited with code ${code}`));
-      serviceProcess = null;
-      emitServiceStatus(win, 'stopped', '服务已停止');
-      updateTrayState();
-      // 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避自动重启；启动期崩溃走上面的 reject
-      if (ready && !quitting) scheduleServiceRestart(win);
+      // 竞态防护：只有"自己仍是当前服务"时才清全局引用/改状态——
+      // startShell/restartService 杀掉旧服务并 spawn 新服务后，旧进程的 exit 不能清掉新服务的引用
+      if (serviceProcess === child) {
+        serviceProcess = null;
+        emitServiceStatus(win, 'stopped', '服务已停止');
+        updateTrayState();
+      }
+      // 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避自动重启；启动期崩溃走上面的 reject。
+      // 壳/用户主动 kill（停止/重启）不算崩溃，不重启。
+      if (ready && !quitting && !intentional) scheduleServiceRestart(win);
     });
     // 端口就绪兜底：服务可能早就监听并响应了，但 ready URL 行晚到/被截断 → 直接探端口，更快更可靠。
     // 只要端口上能取到 DSH 首页（__DSH_BOOT__）就视为就绪。
@@ -858,13 +906,13 @@ async function startShell(win: BrowserWindow): Promise<void> {
     // 冷启动（首次建 dsh-home 要下载/链接 profiles 依赖）可能超过 90s，但服务仍在跑、只是慢，
     // 所以 90s 不判失败，只提示"仍在启动"，继续靠端口探测兜底；只有进程真的退出才判失败。
     // 硬上限 5 分钟（真卡死才失败），避免"上来报失败、过一会又恢复"的误报。
-    setTimeout(() => {
+    readyTimeout = setTimeout(() => {
       if (!ready) {
         writeLog('shell', `service still starting after 90s (port ${port}), keep probing`);
         emitServiceStatus(win, 'starting', '服务仍在启动中，请稍候…');
       }
     }, 90_000);
-    setTimeout(() => {
+    hardTimeout = setTimeout(() => {
       if (!ready) fail(new Error('readiness timeout (5 min)'));
     }, 300_000);
   });
@@ -1129,6 +1177,8 @@ async function restartService(win: BrowserWindow): Promise<void> {
   const child = serviceProcess;
   serviceProcess = null;
   if (child && !child.killed) {
+    // 主动重启：exit 回调不再触发自愈（否则与下面的 startShell 竞态出双服务实例）
+    intentionalKill = true;
     child.kill();
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -1163,11 +1213,24 @@ let installRunning = false;
  * 用 `--loglevel=http` 让 npm 把每次真实下载打到 stderr（`npm http fetch GET 200 <url> … (cache miss)`），
  * 解析它 = 真实进度：每下载一个包 +1，同时显示正在下载的包名（不再用假进度条）。
  * 总量无法预先知道，进度条保持「不确定」动画，但「已下载 N 个包」是真实且单调增长的。
+ *
+ * 启动方式：优先 node 直跑 npm-cli.js（shell:false）——Windows 下 npm.cmd 经 cmd.exe 按 GBK
+ * 解析命令行，中文/空格的前缀路径会被拆坏（实测 `Invalid tag name "测试"`）；node 直跑则 Unicode 安全。
+ * npmCli 拿不到时回退 npm.cmd + shell（非中文路径仍可用）。
  */
-function runNpmInstall(dir: string, win: BrowserWindow, npmCmd: string, registry: string): Promise<number | null> {
+function runNpmInstall(
+  dir: string,
+  win: BrowserWindow,
+  runtime: NodeRuntime,
+  registry: string,
+): Promise<number | null> {
   return new Promise((resolve) => {
-    const child = spawn(npmCmd, [...buildNpmInstallArgs(dir, registry), '--loglevel=http'], {
-      shell: process.platform === 'win32',
+    const args = [...buildNpmInstallArgs(dir, registry), '--loglevel=http'];
+    const useCli = runtime.npmCli !== '' && existsSync(runtime.npmCli);
+    const command = useCli ? runtime.nodeExe : runtime.npmCmd;
+    const spawnArgs = useCli ? [runtime.npmCli, ...args] : args;
+    const child = spawn(command, spawnArgs, {
+      shell: useCli ? false : process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let fetched = 0; // 依赖清单（manifest）请求数
@@ -1217,11 +1280,11 @@ async function runInstallFlow(win: BrowserWindow, dir: string): Promise<void> {
     });
     sendProgress(win, { phase: 'download', percent: -1, detail: `正在下载 DSH 到 ${dir} …` });
     // 默认走 npmmirror（国内镜像，稳定）；失败自动回落官方 registry 重试一次
-    let code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY);
+    let code = await runNpmInstall(dir, win, runtime, DSH_NPM_REGISTRY);
     if (code !== 0) {
       writeLog('shell', `npm install via npmmirror failed (code=${code}), falling back to official registry`);
       sendProgress(win, { phase: 'install', percent: 0, detail: '镜像源下载失败，切换到官方源重试…' });
-      code = await runNpmInstall(dir, win, runtime.npmCmd, DSH_NPM_REGISTRY_FALLBACK);
+      code = await runNpmInstall(dir, win, runtime, DSH_NPM_REGISTRY_FALLBACK);
     }
     if (code !== 0) {
       // 页面 error 步自带"重新安装/查看日志"按钮，不再 reload 回 ask
@@ -1445,7 +1508,9 @@ const shellOps: ShellOps = {
       store.save(config);
       const agentsPath = globalAgentsPath(shellInstallDir());
       mkdirSync(dirname(agentsPath), { recursive: true });
-      writeFileSync(agentsPath, input.globalPrompt, 'utf8');
+      // 原子写（tmp + rename）：DSH 正监听 AGENTS.md，半截写入会让 agent 读到损坏指令
+      writeFileSync(`${agentsPath}.tmp`, input.globalPrompt, 'utf8');
+      renameSync(`${agentsPath}.tmp`, agentsPath);
       // persona 落点 = home patch（$DSH_HOME/cordis.patch.yml）：dsh watchUserPatches 热重载，改完即生效
       const patchPath = cordisPatchPath(shellInstallDir());
       mkdirSync(dirname(patchPath), { recursive: true });
@@ -1507,7 +1572,10 @@ const shellOps: ShellOps = {
       const value = await callRpc({ port, method: 'workspace.list', payload: {} });
       const path = resolveWorkspacePath(normalizeWorkspaceRows(value), input.workspaceId);
       if (!path) return { ok: false, message: '找不到对应工作区（可能已被删除），刷新后再试。' };
-      writeFileSync(projectAgentsPath(path), input.content, 'utf8');
+      // 原子写（tmp + rename）：DSH 正监听 AGENTS.md，半截写入会让 agent 读到损坏指令
+      const agentsFile = projectAgentsPath(path);
+      writeFileSync(`${agentsFile}.tmp`, input.content, 'utf8');
+      renameSync(`${agentsFile}.tmp`, agentsFile);
       writeLog('shell', `project instruction saved for ${input.workspaceId} (${path})`);
       return { ok: true, message: '已保存。DSH 会自动同步到该工作区的会话。' };
     } catch (error) {
@@ -1604,6 +1672,14 @@ app.on('before-quit', () => {
       // 服务进程可能已退出，忽略
     }
     serviceProcess = null;
+  }
+});
+
+app.on('will-quit', () => {
+  // 清理看门狗巡检定时器（应用生命周期结束，不留后台定时器）
+  if (stallTimer) {
+    clearInterval(stallTimer);
+    stallTimer = null;
   }
 });
 

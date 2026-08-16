@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildNodeDownloadUrl,
   localNodeExe,
+  localNpmCli,
   localNpmCmd,
   nodeDistFileName,
   nodeDistName,
@@ -65,5 +66,9 @@ describe('本地路径', () => {
   it('非 win32 → bin/node / bin/npm', () => {
     expect(localNodeExe('/x/node', 'linux')).toBe('/x/node/bin/node');
     expect(localNpmCmd('/x/node', 'linux')).toBe('/x/node/bin/npm');
+  });
+
+  it('localNpmCli → node_modules/npm/bin/npm-cli.js（node 直跑，中文路径安全）', () => {
+    expect(localNpmCli('C:\\x\\node')).toBe('C:\\x\\node\\node_modules\\npm\\bin\\npm-cli.js');
   });
 });
