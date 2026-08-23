@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "description": "dsh-doctor remote check catalog — 规则是数据，不是代码。新检查只需在此文件追加一条 JSON，已装实例会在缓存 TTL（6h）内自动生效，无需重装插件。",
+  "checks": [
+    {
+      "id": "E7-dsh-in-path",
+      "section": "env",
+      "severity": "error",
+      "title": "dsh 可执行文件在 PATH 中",
+      "discussion": "#1270",
+      "when": {
+        "os": [
+          "darwin",
+          "linux",
+          "win32"
+        ]
+      },
+      "probe": {
+        "type": "command-exists",
+        "cmd": "dsh"
+      },
+      "detailOk": "dsh 在 PATH 中可用",
+      "detailFail": "dsh 不在 PATH（插件/CLI 安装链路不可用，#1270 同族）",
+      "fix": "安装 dsh 并将 node_modules/.bin 加入 PATH"
+    },
+    {
+      "id": "E8-npmrc-workspace-flag",
+      "section": "env",
+      "severity": "warn",
+      "title": "workspace-root profile 的 .npmrc 安装开关",
+      "discussion": "#20",
+      "when": {
+        "os": [
+          "darwin",
+          "linux",
+          "win32"
+        ]
+      },
+      "probe": {
+        "type": "text-contains",
+        "path": "{profile}/.npmrc",
+        "pattern": "ignore-workspace-root-check\\s*=\\s*true",
+        "flags": ""
+      },
+      "detailOk": "profile .npmrc 已含 ignore-workspace-root-check=true（dsh-market #20 workaround 在位）",
+      "detailFail": "profile .npmrc 缺 ignore-workspace-root-check=true——workspace-root profile 上 dsh plugin 安装/更新会报 ERR_PNPM_ADDING_TO_ROOT（dsh-market #20）",
+      "fix": "在 {profile}/.npmrc 追加 ignore-workspace-root-check=true"
+    },
+    {
+      "id": "P6-patch-name-space",
+      "section": "profile",
+      "severity": "error",
+      "title": "patch insert name 含空格（Windows 参数 lint）",
+      "discussion": "#1420",
+      "when": {
+        "os": [
+          "darwin",
+          "linux",
+          "win32"
+        ]
+      },
+      "probe": {
+        "type": "text-not-contains",
+        "path": "{profile}/cordis.patch.yml",
+        "pattern": "^\\s*name:\\s*['\"]?[^'\"\\s]+[^'\"\\n]*\\s[^'\"\\n]+",
+        "flags": "m",
+        "required": false
+      },
+      "detailOk": "用户 patch 的 insert name 均无空格",
+      "detailFail": "用户 patch 存在含空格的 insert name（Windows 下 spawn 参数解析会断，#1420 待实现 lint 的目录版）",
+      "fix": "把含空格的 insert name 改为不含空格的标识符"
+    },
+    {
+      "id": "E9-storages-json-valid",
+      "section": "env",
+      "severity": "error",
+      "title": "config 目录 JSON 文件合法性",
+      "discussion": "#1357",
+      "when": {
+        "os": [
+          "darwin",
+          "linux",
+          "win32"
+        ]
+      },
+      "probe": {
+        "type": "json-valid",
+        "path": "{home}/config/workspace.json",
+        "required": false
+      },
+      "detailOk": "config/workspace.json 为合法 JSON",
+      "detailFail": "config/workspace.json 不是合法 JSON（#1357 并发写乱码类，工作区列表会消失）",
+      "fix": "排查多实例并发写；修复或删除损坏文件"
+    },
+    {
+      "id": "E11-settings-writable",
+      "section": "env",
+      "severity": "error",
+      "title": "settings.yaml 可写性（sudo 属主问题）",
+      "discussion": "#1719",
+      "when": {
+        "os": [
+          "darwin",
+          "linux",
+          "win32"
+        ]
+      },
+      "probe": {
+        "type": "file-writable",
+        "path": "{home}/settings.yaml",
+        "required": false
+      },
+      "detailOk": "settings.yaml 可写",
+      "detailFail": "settings.yaml 不可写（sudo 安装遗留的属主/权限问题），dsh 无法持久化设置",
+      "fix": "把属主改回当前用户：sudo chown <当前用户> ~/.dsh/settings.yaml（或删掉让 dsh 重建）"
+    }
+  ]
+}

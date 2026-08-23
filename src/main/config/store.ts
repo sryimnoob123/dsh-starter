@@ -25,6 +25,8 @@ export interface ShellConfig {
   winTerminalInspectorInstalled?: boolean;
   /** 新会话默认权限是否已设为 danger-full-access（O2-A 只写一次，之后用户手改壳不再覆盖） */
   permissionDefaultApplied?: boolean;
+  /** 用户对某更新版本点过"稍后"（[稍后持久化]）：同版本不再自动弹窗，新版本恢复 */
+  dismissedUpdateVersion?: string;
 }
 
 const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };

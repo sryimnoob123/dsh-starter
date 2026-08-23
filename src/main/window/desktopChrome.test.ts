@@ -50,6 +50,12 @@ describe('desktopChrome 注入脚本（整窗外观，[D83]/[D84]/[D85]）', () 
     expect(FLOATING_CONTROLS_SCRIPT).not.toContain('open-settings');
   });
 
+  it('四个悬浮按钮使用 44x36px 点击热区，并为整组按钮留足顶部空间', () => {
+    expect(FLOATING_CONTROLS_SCRIPT).toContain('width:44px;height:36px');
+    expect(FLOATING_CONTROLS_SCRIPT).toContain('font:400 13px/36px');
+    expect(DRAG_BAR_SCRIPT).toContain("paddingRight = '190px'");
+  });
+
   it('拖拽条 = 原生 -webkit-app-region: drag（无 JS setPosition、无双击最大化的旧问题）', () => {
     expect(DRAG_BAR_SCRIPT).toContain('-webkit-app-region:drag');
     expect(DRAG_BAR_SCRIPT).toContain('dsh-drag-bar');

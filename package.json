@@ -1,7 +1,7 @@
 {
     "name": "dsh-desktop",
     "productName": "deepseek-harness-starter",
-    "version": "0.4.2",
+    "version": "0.4.3",
     "description": "DeepSeek Harness desktop client (Electron shell). Independent open-source project.",
     "license": "MIT",
     "author": "dsh-desktop contributors",
@@ -12,7 +12,7 @@
         "typecheck": "tsc --noEmit",
         "build": "tsc && node scripts/postbuild.mjs",
         "prepare:dsh": "node scripts/prepare-dsh.mjs",
-        "dist": "pnpm prepare:dsh && pnpm build && electron-builder --win --config build/electron-builder.yml",
+        "dist": "pnpm prepare:dsh && pnpm build && node scripts/build-installer.mjs",
         "start": "electron ."
     },
     "dependencies": {

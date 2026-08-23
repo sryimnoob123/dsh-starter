@@ -1,0 +1,65 @@
+{
+  "name": "dsh-boot-guard",
+  "version": "1.1.2",
+  "description": "A loader-independent rescue console for DeepSeek Harness when a broken plugin prevents the Web UI from starting.",
+  "private": false,
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "author": "SaiSenBox",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SaiSenBox/dsh-boot-guard.git"
+  },
+  "homepage": "https://github.com/SaiSenBox/dsh-boot-guard#readme",
+  "bugs": {
+    "url": "https://github.com/SaiSenBox/dsh-boot-guard/issues"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin-recovery",
+    "safe-mode",
+    "boot-guard"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/client.js",
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": { "default": "./lib/client.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "assets/boot-guard-preview.png",
+    "cordis.patch.yml",
+    "install.ps1",
+    "uninstall.ps1",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

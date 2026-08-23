@@ -100,6 +100,16 @@
       .btn:hover { background: var(--brand-hover); }
       .btn:active { background: var(--brand-active); }
       .btn[disabled] { opacity: 0.6; cursor: default; }
+      /* 排错副按钮：描边幽灵钮，与主「重试」区分（主次分明） */
+      .btn--ghost {
+        margin-top: 10px;
+        background: none;
+        color: var(--brand);
+        border: 1px solid var(--line);
+        font-weight: 600;
+      }
+      .btn--ghost:hover { background: var(--error-soft); border-color: var(--brand); }
+      .btn--ghost:active { background: var(--error-soft); }
       .btnrow { display: flex; gap: 8px 20px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
       .link {
         background: none; border: 0; padding: 8px 4px; cursor: pointer;
@@ -131,6 +141,7 @@
       <p class="lede" id="lede"></p>
       <ol class="steps" id="steps"></ol>
       <button class="btn" id="primary"></button>
+      <button class="btn btn--ghost" id="troubleshoot" hidden></button>
       <div class="btnrow" id="links"></div>
       <p class="status" id="status" role="status" aria-live="polite"></p>
     </main>
@@ -154,6 +165,11 @@
           retry: '重试', logs: '查看日志', install: '安装 DeepSeek Harness',
           starting: '正在启动服务…',
           preview: '预览模式：未连接壳，按钮不可用。',
+          troubleshoot: '复制诊断报告',
+          troubleshooting: '正在生成诊断报告…',
+          troubleshootSent: '诊断报告已复制到剪贴板，粘贴给 AI 即可排错。',
+          troubleshootFailed: '生成失败，请查看日志后重试。',
+          reportHint: '报告也保存在「诊断报告」文件夹（应用数据目录下），可手动打开复制。',
           cases: {
             'port-occupied': {
               icon: 'plug', title: '端口被占用',
@@ -186,6 +202,11 @@
           retry: 'Retry', logs: 'View logs', install: 'Install DeepSeek Harness',
           starting: 'Starting the service…',
           preview: 'Preview mode: shell bridge not connected.',
+          troubleshoot: 'Copy diagnostics',
+          troubleshooting: 'Generating diagnostic report…',
+          troubleshootSent: 'Diagnostics copied to clipboard. Paste to your AI to troubleshoot.',
+          troubleshootFailed: 'Generation failed. Check the logs and try again.',
+          reportHint: 'The report is also saved in the "diagnostic-reports" folder (app data directory).',
           cases: {
             'port-occupied': {
               icon: 'plug', title: 'Port already in use',
@@ -237,6 +258,7 @@
       const status = document.getElementById('status');
       const primary = document.getElementById('primary');
       const links = document.getElementById('links');
+      const troubleshootBtn = document.getElementById('troubleshoot');
       const isInstall = key === 'dsh-missing';
 
       primary.textContent = isInstall ? t.install : t.retry;
@@ -247,6 +269,28 @@
         const p = isInstall ? shell.goInstall() : shell.retry();
         Promise.resolve(p).catch(() => undefined).finally(() => { primary.disabled = false; });
       });
+
+      // 复制诊断报告（[handoff §22]）：只出现在崩溃类形态（服务启动失败 / 配置损坏），
+      // 点击 → 壳生成诊断报告（剪贴板 + 落盘）→ 用户自己粘贴给 AI 排错
+      const showTroubleshoot = key === 'spawn-crash' || key === 'config-broken';
+      if (showTroubleshoot && shell && typeof shell.troubleshoot === 'function') {
+        troubleshootBtn.hidden = false;
+        troubleshootBtn.textContent = t.troubleshoot;
+        troubleshootBtn.addEventListener('click', () => {
+          troubleshootBtn.disabled = true;
+          status.textContent = t.troubleshooting;
+          Promise.resolve(shell.troubleshoot())
+            .then((result) => {
+              if (result && result.ok) {
+                status.textContent = t.troubleshootSent + ' ' + t.reportHint;
+              } else {
+                status.textContent = t.troubleshootFailed;
+              }
+            })
+            .catch(() => { status.textContent = t.troubleshootFailed; })
+            .finally(() => { troubleshootBtn.disabled = false; });
+        });
+      }
 
       function addLink(label, fn) {
         const b = document.createElement('button');

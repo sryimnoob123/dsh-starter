@@ -16,44 +16,110 @@ export const DESKTOP_CSS =
   + '::-webkit-scrollbar-corner{background:transparent;}';
 
 /** 右上角悬浮窗口按钮（用户拍板：删除标题栏，原窗口按钮直接放右上角；设置入口在 DSH 官方设置内）。
- *  新增"检查更新"按钮（[D78]，OpenChamber 风格图标）：点击即走自动更新（检查→自动下载→用户确认安装）。 */
+ *  "检查更新"按钮为多态状态按钮（Codex/OpenChamber 式，新版本醒目可见 + 进度可视化 + 一键下载/安装）：
+ *  - 无更新：普通刷新图标（title「检查更新」）；
+ *  - 有新版本：图标右上角叠琥珀色醒目标记，点击即开始下载；
+ *  - 下载中：图标下方显示百分比进度环/数字，点击忽略；
+ *  - 下载完成：图标换对勾 + 按钮高亮，点击即确认安装。
+ *  主进程经 window.__dshSetUpdateState(state) 推状态（app.ts → executeJavaScript）；页面加载晚于状态变化时，
+ *  主进程在 did-finish-load 后补推 getUpdateUiState()。状态切换不新增悬浮按钮、不占额外空间、不挡其他 UI。 */
 export const FLOATING_CONTROLS_SCRIPT = `(function () {
+  if (window.__dshUpdateBtnInstalled) return;
+  window.__dshUpdateBtnInstalled = true;
+
+  // ---- 更新状态提示条的渲染状态（由主进程推送；缺省 = 无提示）----
+  var state = 'none';
+  var updateVersion = '';
+  var updatePercent = 0;
+
+  // 提示条文案（available=发现新版本可下载 / downloading=下载中带进度 / downloaded=下载完可安装 / checking=检查中）
+  function toastLabel() {
+    if (state === 'checking') return '\\u68c0\\u67e5\\u66f4\\u65b0\\u4e2d\\u2026';
+    if (state === 'downloading') return '\\u6b63\\u5728\\u4e0b\\u8f7d\\u65b0\\u7248\\u672c\\uff08' + Math.round(updatePercent) + '%\\uff09';
+    if (state === 'downloaded') return '\\u4e0b\\u8f7d\\u5df2\\u5b8c\\u6210\\uff0c\\u8bf7\\u70b9\\u51fb\\u5b89\\u88c5';
+    if (state === 'available') return '\\u53d1\\u73b0\\u65b0\\u7248\\u672c\\uff0c\\u70b9\\u6b64\\u4e0b\\u8f7d';
+    return '';
+  }
+  function render() {
+    var toast = document.getElementById('dsh-float-update-toast');
+    if (!toast) return;
+    var active = state === 'available' || state === 'downloaded';
+    var show = active || state === 'downloading' || state === 'checking';
+    toast.hidden = !show;
+    if (show) {
+      toast.textContent = toastLabel();
+      toast.dataset.phase = state;
+      toast.disabled = !active; // 下载中/检查中不可点，防重复触发
+      toast.title = active ? '\\u70b9\\u51fb\\u540e\\u5b89\\u88c5\\u6216\\u4e0b\\u8f7d' : '';
+    } else {
+      toast.textContent = '';
+      delete toast.dataset.phase;
+      toast.disabled = false;
+      toast.title = '';
+    }
+  }
+  window.__dshSetUpdateState = function (s) {
+    if (!s) return;
+    // 空对象 = 复位（主进程 pushUi 初始态 {phase:'none'}；防御空对象不清 → 残留旧角标/提示条）
+    state = (s.phase && s.phase !== 'none') ? s.phase : 'none';
+    updateVersion = s.version || '';
+    updatePercent = typeof s.percent === 'number' ? s.percent : 0;
+    render();
+  };
+
+  // ---- DOM 注入（幂等：同一窗口只建一次）----
   if (document.getElementById('dsh-float-controls')) return;
   var box = document.createElement('div');
   box.id = 'dsh-float-controls';
   box.innerHTML =
-    '<button data-act="check-update" title="\\u68c0\\u67e5\\u66f4\\u65b0">' +
-      '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5V6H10"/></svg>' +
-    '</button>' +
+    '<button id="dsh-float-update-toast" hidden class="dsh-update-toast" data-act="check-update"></button>' +
     '<button data-act="minimize" title="\\u6700\\u5c0f\\u5316">\\u2013</button>' +
     '<button data-act="toggle-maximize" title="\\u6700\\u5927\\u5316/\\u8fd8\\u539f">\\u25a1</button>' +
     '<button data-act="close" title="\\u5173\\u95ed\\uff08\\u7f29\\u5230\\u6258\\u76d8\\uff09">\\u00d7</button>';
   box.style.cssText =
-    'position:fixed;top:6px;right:8px;z-index:2147483647;display:flex;gap:2px;-webkit-app-region:no-drag;';
+    'position:fixed;top:6px;right:8px;z-index:2147483647;display:flex;align-items:center;gap:2px;-webkit-app-region:no-drag;';
   document.documentElement.appendChild(box);
   var style = document.createElement('style');
   style.textContent =
-    '#dsh-float-controls button{all:unset;width:32px;height:24px;text-align:center;cursor:default;' +
-    'font:400 13px/24px system-ui,"Segoe UI",sans-serif;color:var(--dsh-desktop-titlebar-fg,oklch(85% .02 90));' +
-    'border-radius:6px;background:transparent;}' +
-    '#dsh-float-controls button[data-act="check-update"]{display:flex;align-items:center;justify-content:center;cursor:pointer;}' +
+    '#dsh-float-controls button{all:unset;width:44px;height:36px;text-align:center;cursor:default;' +
+    'font:400 13px/36px system-ui,"Segoe UI",sans-serif;color:var(--dsh-desktop-titlebar-fg,oklch(85% .02 90));' +
+    'border-radius:6px;background:transparent;position:relative;}' +
     '#dsh-float-controls button:hover{background:var(--dsh-desktop-titlebar-hover,oklch(29% .01 40));}' +
-    '#dsh-float-controls button[data-act="close"]:hover{background:var(--dsh-desktop-titlebar-close-hover,oklch(65% .15 30));}';
+    '#dsh-float-controls button[data-act="close"]:hover{background:var(--dsh-desktop-titlebar-close-hover,oklch(65% .15 30));}' +
+    // 「新版本已发布，点此更新」提示条：琥珀胶囊，唯一更新入口（available/downloaded 可点，下载中/检查中禁点）
+    '#dsh-float-controls .dsh-update-toast{all:unset;cursor:pointer;display:inline-flex;align-items:center;' +
+    'white-space:nowrap;padding:0 12px;height:30px;border-radius:999px;margin-right:4px;' +
+    'font:600 12px/1 system-ui,"Segoe UI",sans-serif;letter-spacing:0.2px;' +
+    'color:var(--dsh-desktop-titlebar-fg,oklch(92% .03 90));' +
+    'background:oklch(0.77 0.17 85 / 0.18);' +
+    'border:1px solid var(--dsh-desktop-update-badge,oklch(0.77 0.17 85));' +
+    'box-shadow:0 2px 10px oklch(0.16 0.05 60 / 0.35);' +
+    'animation:dsh-update-toast-in 160ms ease-out;}' +
+    '#dsh-float-controls .dsh-update-toast:hover{background:oklch(0.77 0.17 85 / 0.28);}' +
+    '#dsh-float-controls .dsh-update-toast[disabled]{cursor:default;opacity:0.75;}' +
+    '#dsh-float-controls .dsh-update-toast[hidden]{display:none;}' +
+    '@keyframes dsh-update-toast-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}' +
+    '@media (prefers-reduced-motion:reduce){#dsh-float-controls .dsh-update-toast{animation:none}}';
   document.head.appendChild(style);
   box.querySelectorAll('button').forEach(function (b) {
     b.addEventListener('click', function (ev) {
       // 只响应真实用户点击；合成 click（isTrusted=false）一律忽略——
       // 否则 DSH React 高频重渲染下会被反复自动触发，导致每 ~5s 刷一次"检查更新"
       if (ev && ev.isTrusted === false) return;
+      if (b.disabled) return; // 下载中/检查中：不可点
       var w = window.dshShell;
       if (!w) return;
       var act = b.getAttribute('data-act');
       try {
-        if (act === 'check-update') { if (w.checkForUpdates) w.checkForUpdates(); }
+        if (act === 'check-update') {
+          // 一键下载/安装统一入口：主进程侧自动判断（有待装版本 → 安装；否则检查+下载）
+          if (w.checkForUpdates) w.checkForUpdates();
+        }
         else if (w.windowControl) w.windowControl(act);
       } catch (e) { /* 忽略 */ }
     });
   });
+  render(); // 首次注入：按当前 state 初始化（缺省隐藏）
 })();`;
 
 /**
@@ -101,7 +167,7 @@ export const DRAG_BAR_SCRIPT = `(function () {
       var row = h.firstElementChild;
       if (!row) continue;
       h.setAttribute('data-dsh-padded', '1');
-      row.style.paddingRight = '150px';
+      row.style.paddingRight = '190px';
     }
   }
   var timer = null;

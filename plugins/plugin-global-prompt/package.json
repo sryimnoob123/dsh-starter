@@ -1,0 +1,45 @@
+{
+  "name": "@dsh-desktop/plugin-global-prompt",
+  "description": "Native DeepSeek Harness settings plugin for global and project AGENTS.md, identity/persona injection, and result notifications. MIT licensed; works in DSH Web and the dsh-desktop Electron shell.",
+  "version": "0.1.1",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./lib/core": "./lib/core.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "engines": {
+    "dsh": ">=0.1.1-rc.1",
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-settings": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.1-rc.2",
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

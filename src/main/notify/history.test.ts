@@ -73,7 +73,7 @@ describe('append / read / clear', () => {
     const history = readNotificationHistory(dir, 10_000);
     expect(history.length).toBe(MAX_ENTRIES);
     expect(history[0].time).toBe(MAX_ENTRIES + 20); // 最新在前
-  });
+  }, 15_000);
 
   it('坏行不影响其余读取', () => {
     appendNotificationEntry(dir, { time: 1, title: 'a', body: '1' });

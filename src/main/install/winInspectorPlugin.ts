@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { addInsertEntry } from '../files/profilePatch.js';
 
 /**
  * 捆绑第三方 bug-fix 插件 dsh-win-terminal-inspector（[bugfix] DSH win32 持久终端）：
@@ -31,23 +32,13 @@ export function profilePatchPath(dshHome: string): string {
 }
 
 /**
- * 把检查器 insert 条目幂等追加进 profile patch 内容。
+ * 把检查器 insert 条目幂等追加进 profile patch 内容（文本操作收敛在 files/profilePatch.ts）。
  * - 已存在该 id → 原样返回（不改用户手动内容）；
  * - 内容以空数组 [] 结尾（DSH 首次生成的默认态）→ 把 [] 替换成条目；
  * - 其他情况 → 末尾追加一个新条目。
  */
 export function withInspectorPatchEntry(existing: string): string {
-  if (existing.includes(`id: ${WIN_INSPECTOR_ROW_ID}`)) return existing;
-  const entry = [
-    '- insert:',
-    `    - id: ${WIN_INSPECTOR_ROW_ID}`,
-    `      name: ./plugins/${WIN_INSPECTOR_DIR}/index.js`,
-  ].join('\n');
-  const trimmed = existing.trimEnd();
-  if (/\[\s*\]\s*$/.test(trimmed)) {
-    return `${trimmed.replace(/\[\s*\]\s*$/, '')}${entry}\n`;
-  }
-  return `${trimmed}\n${entry}\n`;
+  return addInsertEntry(existing, WIN_INSPECTOR_ROW_ID, `./plugins/${WIN_INSPECTOR_DIR}/index.js`);
 }
 
 /**

@@ -1,0 +1,13 @@
+# @dsh-desktop/plugin-global-prompt — bundle patch layer.
+# Inserted into the DSH profile tree when this package is installed
+# (installed in node_modules, or bundled by the dsh-desktop installer).
+- insert:
+    - id: desktop-global-prompt
+      name: '@dsh-desktop/plugin-global-prompt'
+
+# Re-enable the official agent-instructions mechanism (the web-app bundle disables it
+# by default): the global AGENTS.md and per-workspace AGENTS.md this plugin manages
+# are injected by dsh-agent-instructions, so it must be active.
+# 卸载本插件后该行随之消失,agent-instructions 回落 web-app 默认的 disabled: true。
+- id: agent-instructions
+  disabled: false

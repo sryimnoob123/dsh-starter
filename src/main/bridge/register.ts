@@ -5,6 +5,8 @@ import {
   parseConnectionConfig,
   parseFilePathInput,
   parseLogKind,
+  parsePluginSetEnabledInput,
+  parsePluginSetRemovedInput,
   parsePort,
   parseProjectInstructionInput,
   parsePromptSettingsInput,
@@ -20,6 +22,7 @@ import {
   type ShellStatusEvent,
   type WindowAction,
 } from './contract.js';
+import type { PluginRow } from '../plugins/pluginManager.js';
 
 /**
  * 壳侧桥注册器（[D79] 外包包 §2）：
@@ -77,6 +80,14 @@ export interface ShellOps {
   filePathOpen(path: string): Promise<void>;
   /** 窗口控制（自绘标题栏 [D84]：minimize / toggle-maximize / close=缩托盘） */
   windowControl(action: WindowAction): void;
+  /** 插件管理：列出所有已装插件（设置页「插件 → 管理」，@deepseek-ai/dsh-plugin-manager 桥） */
+  pluginList(): PluginRow[];
+  /** 插件管理：开关插件（写/删 profile cordis.patch.yml 的 disabled 条目，重启生效） */
+  pluginSetEnabled(input: { id: string; enabled: boolean }): { ok: true } | { ok: false; error: string };
+  /** 插件管理：移除/恢复插件（删/加 profile cordis.patch.yml 的 insert 块，重启生效） */
+  pluginSetRemoved(input: { id: string; removed: boolean }): { ok: true } | { ok: false; error: string };
+  /** 复制诊断报告：生成三段式诊断报告（剪贴板 + 落盘），用户自己粘贴给 AI 排错（引导页按钮） */
+  troubleshoot(): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export function registerBridge(ops: ShellOps): void {
@@ -177,6 +188,22 @@ export function registerBridge(ops: ShellOps): void {
     if (action === null) throw new Error(`windowControl: 非法动作 ${String(raw)}`);
     ops.windowControl(action);
   });
+
+  ipcMain.handle(BRIDGE_API.pluginList, () => ops.pluginList());
+
+  ipcMain.handle(BRIDGE_API.pluginSetEnabled, (_event, raw: unknown) => {
+    const input = parsePluginSetEnabledInput(raw);
+    if (!input) return { ok: false, error: '插件开关参数非法' };
+    return ops.pluginSetEnabled(input);
+  });
+
+  ipcMain.handle(BRIDGE_API.pluginSetRemoved, (_event, raw: unknown) => {
+    const input = parsePluginSetRemovedInput(raw);
+    if (!input) return { ok: false, error: '插件移除参数非法' };
+    return ops.pluginSetRemoved(input);
+  });
+
+  ipcMain.handle(BRIDGE_API.troubleshoot, () => ops.troubleshoot());
 }
 
 export function sendServiceStatus(win: BrowserWindow, event: ShellStatusEvent): void {

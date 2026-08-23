@@ -5,6 +5,7 @@ import {
   parseFilePathInput,
   parseInstallPhase,
   parseLogKind,
+  parsePluginSetRemovedInput,
   parsePort,
   parseProjectInstructionInput,
   parsePromptSettingsInput,
@@ -12,7 +13,7 @@ import {
 } from './contract.js';
 
 describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D79] 外包包 §2）', () => {
-  it('锁定 27 个方法名', () => {
+  it('锁定 31 个方法名', () => {
     expect(Object.keys(BRIDGE_API).sort()).toEqual([
       'checkForUpdates',
       'choosePort',
@@ -30,6 +31,9 @@ describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D
       'openMain',
       'openPromptSettings',
       'pickDir',
+      'pluginList',
+      'pluginSetEnabled',
+      'pluginSetRemoved',
       'quit',
       'readLog',
       'readNotifications',
@@ -40,6 +44,7 @@ describe('BRIDGE_API 方法面（页面契约，改名 = 破坏外包页面，[D
       'selectDshDir',
       'startInstall',
       'testConnection',
+      'troubleshoot',
       'windowControl',
     ]);
   });
@@ -179,6 +184,28 @@ describe('parsePromptSettingsInput（设置页保存载荷，[FR-16]/[FR-4.3]）
     [{ ...valid, uiTheme: 1 }],
   ])('拒绝非法载荷 %o', (v) => {
     expect(parsePromptSettingsInput(v)).toBeNull();
+  });
+});
+
+describe('parsePluginSetRemovedInput（插件移除载荷，@deepseek-ai/dsh-plugin-manager setRemoved）', () => {
+  it('接受合法载荷并去空白 id', () => {
+    expect(parsePluginSetRemovedInput({ id: ' better-sidebar ', removed: true })).toEqual({
+      id: 'better-sidebar',
+      removed: true,
+    });
+    expect(parsePluginSetRemovedInput({ id: 'x', removed: false })).toEqual({ id: 'x', removed: false });
+  });
+
+  it.each([
+    [null],
+    ['x'],
+    [{ id: '', removed: true }],
+    [{ id: 'x'.repeat(201), removed: true }],
+    [{ id: 42, removed: true }],
+    [{ id: 'x', removed: 'yes' }],
+    [{ id: 'x' }],
+  ])('拒绝非法载荷 %o', (v) => {
+    expect(parsePluginSetRemovedInput(v)).toBeNull();
   });
 });
 

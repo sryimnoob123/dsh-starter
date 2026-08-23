@@ -1,0 +1,4 @@
+# dsh-boot-guard profile registration.
+- insert:
+    - id: boot-guard
+      name: 'dsh-boot-guard'

@@ -1,14 +1,17 @@
-import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
 import { ConfigStore } from './config/store.js';
 import { classifyProbe, parseReadyUrlLine } from './service/detect.js';
+import { scanHotMountLine } from './service/hotMount.js';
+import { decideRenderGone, RENDER_GONE_WINDOW_MS, STATUS_BREAKPOINT, type RenderGoneState } from './window/renderGone.js';
 import { decidePort } from './service/port.js';
 import { decideStartup } from './service/startup.js';
 import { buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
+import { ensureProfilePnpmWorkspaces } from './service/profileWorkspace.js';
 import { isNodeOk } from './service/nodeCheck.js';
 import { Registry } from './extensions/registry.js';
 import { classifyEvent, type MuxFrame } from './notify/classify.js';
@@ -16,15 +19,29 @@ import { unwrapMuxEnvelope } from './notify/mux.js';
 import { JobTracker } from './events/catchup.js';
 import { redact, buildLogLine } from './logging/redact.js';
 import { maybeRotateLog } from './logging/rotate.js';
-import { readLogTail } from './logging/readLog.js';
+import { readLogTail, readDiagnosticLogTail } from './logging/readLog.js';
 import { logFile } from './logging/paths.js';
-import { checkForUpdatesManually, getPendingUpdateVersion, installPendingUpdate, setupAutoUpdater } from './updater/index.js';
+import {
+  checkForUpdatesManually,
+  getAvailableUpdateVersion,
+  getPendingUpdateVersion,
+  getUpdateUiState,
+  installPendingUpdate,
+  setupAutoUpdater,
+  startDownload,
+  type UpdateUiState,
+} from './updater/index.js';
 import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from './bridge/register.js';
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { applyDefaultPermission, saveConnectionToService } from './onboarding/dshConfig.js';
 import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_FALLBACK, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
 import { ensureWinTerminalInspector } from './install/winInspectorPlugin.js';
+import { seedProfileFromBundled, finalizeSeedSettings } from './install/seedProfile.js';
+import { BUNDLED_DSH_PLUGINS, ensureBundledDshPlugins, isolatedBundledNames } from './install/bundledDshPlugins.js';
+import { listPlugins, setPluginEnabled, setPluginRemoved } from './plugins/pluginManager.js';
+import { createRescueEngine, runDiagnosers, type RescueEvent } from './vendor-rescue/index.js';
+import { collectKnownPlugins, createDshIsolator, dshDiagnosers, sanitizePatchForRestore } from './vendor-rescue/dsh/index.js';
 import { ensureNodeRuntime, type NodeRuntime } from './runtime/nodeProvision.js';
 import { callRpc } from './service/rpc.js';
 import {
@@ -36,12 +53,15 @@ import {
   VIEW_TAB_SCRIPT,
 } from './window/desktopChrome.js';
 import { CODEX_SKIN_CSS } from './window/codexSkin.js';
-import { SETTINGS_EXTENSION_SCRIPT } from './window/settingsExtension.js';
 import { FILE_PATH_EXTENSION_SCRIPT, FILE_PATH_SELECTABLE_CSS } from './window/filePathExtension.js';
 import { resolveFilePath } from './files/path.js';
 import { buildLocateSessionScript, isDshAppUrl } from './window/locate.js';
 import { normalizeWindowBounds } from './window/bounds.js';
 import { buildCompactPayload, describeCompactFeedback, parseCurrentSessionId } from './commands/compact.js';
+import { openRepairSession, type RepairContext } from './commands/repairSession.js';
+import { writeDiagnosticReport, reportDirFor } from './commands/diagnosticReport.js';
+import { backupDshHome } from './backup/backup.js';
+import { describeShortcutRegistration, GLOBAL_TOGGLE_SHORTCUT, matchShortcut } from './shortcuts/shortcuts.js';
 import { isAllowedNavigationUrl } from './window/navigation.js';
 import {
   freshTracker,
@@ -78,10 +98,25 @@ function shellInstallDir(): string {
   return app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath();
 }
 
+/** 内置插件源目录：打包版用 app.asar.unpacked（真实文件系统，fs.cpSync 可复制）——
+ *  Electron 的 asar 虚拟文件系统只支持只读操作，cpSync 从 app.asar 复制必然 ENOENT
+ * （2026-08-23 真机：pre-sync failed → 内置插件没同步）。开发版回退源码树 plugins/。 */
+function bundledPluginsSourceRoot(): string {
+  if (app.isPackaged) {
+    const unpacked = join(dirname(app.getAppPath()), 'app.asar.unpacked', 'plugins');
+    return existsSync(unpacked) ? unpacked : join(app.getAppPath(), 'plugins');
+  }
+  return join(app.getAppPath(), 'plugins');
+}
+
 // [兼容] Chromium 沙箱在部分磁盘的 ACL 环境（如用户的 E 盘）会初始化失败，应用一启动就闪退（退出码 -36861）。
 // 禁用沙箱以彻底兼容任意安装路径（实测：同一 exe 在 C 盘正常、E 盘崩；加 --no-sandbox 后 E 盘正常）。
 // 本壳只加载本机 DSH 服务（127.0.0.1），contextIsolation + nodeIntegration:false 仍保留 renderer 隔离。
 app.commandLine.appendSwitch('no-sandbox');
+
+// 开发模式（未打包）：壳数据（配置/日志/自备 Node 运行时）落源码树 dev-userdata，
+// 与打包版 %APPDATA%/deepseek-harness-starter 完全隔离——测试不污染正式数据，改动全留在源码文件夹内。
+if (!app.isPackaged) app.setPath('userData', join(app.getAppPath(), 'dev-userdata'));
 
 // ---------------------------------------------------------------------------
 // 常量（架构文档 §4：稳定边界；persona/身份经 home patch $DSH_HOME/cordis.patch.yml 热重载注入）
@@ -103,7 +138,7 @@ interface TrayItem {
   id: string;
   title: string;
   order: number;
-  click: (ctx: { window: BrowserWindow; stopService: () => void; quit: () => void }) => void;
+  click: (ctx: { window: BrowserWindow; restartService: () => void; quit: () => void }) => void;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -116,7 +151,143 @@ let quitting = false;
 let intentionalKill = false;
 /** 服务死亡自愈重试次数（指数退避，就绪后清零） */
 let restartAttempts = 0;
+/** 坏 YAML 自动回退次数（对抗审查 C3：.bak 也坏/回退无效时防无限递归；就绪后清零） */
+let badYamlRestoreAttempts = 0;
+
+/** 插件自救：DSH 启动崩溃时累计 stderr 供诊断（截尾防膨胀），每轮 spawn 前清空 */
+let crashStderrBuffer = '';
+/** 插件自救：隔离器所需路径（startShell 解析 installDir 后更新，spawn 前有效） */
+let rescuePaths: { dshHome: string; dshRuntimeRoot: string } | null = null;
+/** 渲染进程崩溃台账（缺口 1：2 分钟窗口 3 次上限，STATUS_BREAKPOINT 杀软特征走 security-guard） */
+let renderGoneState: RenderGoneState = { crashes: 0, lastCrashAt: 0 };
+/** security-guard 通知节流时间戳（0 = 从未提示；2 分钟窗口内只提示一次） */
+let renderGoneNotifiedAt = 0;
+/** 插件自救：隔离器工厂（每次新建，纯路径对象；backupRoot 注入 userData 下独立目录——
+ *  运行时数据归运行期动态目录，不进 dsh-home 种子）。壳侧持有引用供恢复按钮直调
+ *  （恢复是用户手动动作，不经引擎——引擎只管"崩溃 → 处置"）。 */
+function rescueIsolator() {
+  return createDshIsolator({
+    ...(rescuePaths ?? { dshHome: '', dshRuntimeRoot: '' }),
+    backupRoot: join(app.getPath('userData'), 'rescue-backups'),
+  });
+}
+/** 插件自救引擎（shell-rescue 独立库，产物由 npm run sync 同步进 vendor-rescue/）：
+ *  诊断规则、滑动窗口预算、同插件去重、give-up 会话锁、会话内存隔离台账都在库内；
+ *  壳只负责喂崩溃、用内存台账跳过肇事插件并递归恢复，以及用户通知。
+ *  隔离不落盘——每次启动新会话重新尝试，插件修复后自动恢复。 */
+/** 最近自救事件（[F2] 修复会话注入用；ring buffer 上限 20 条） */
+const rescueEventLog: RescueEvent[] = [];
+const rescueEngine = createRescueEngine({
+  diagnosers: dshDiagnosers,
+  isolator: {
+    isolate: (plugin) => (rescuePaths
+      ? rescueIsolator().isolate(plugin)
+      : { ok: false, detail: 'rescue paths not ready' }),
+    // [自救修复通道] 透传隔离器的 repair（如清 patch 双挂 insert 块）——不接上则引擎
+    // hasRepair=false，duplicate-entry 这类配置错误走不了修复、落回 no-suspect give-up
+    repair: (req) => (rescuePaths
+      ? (rescueIsolator().repair?.(req) ?? { ok: false, detail: 'repair not supported' })
+      : { ok: false, detail: 'rescue paths not ready' }),
+    // [隔离=移走] 透传隔离器的 restore（把隔离前备份的插件实体/配置装回运行环境）。
+    // 恢复是用户手动动作（弹窗按钮），不经引擎——引擎只管"崩溃 → 处置"。
+    restore: (plugin) => (rescuePaths
+      ? (rescueIsolator().restore?.(plugin) ?? { ok: false, detail: 'restore not supported' })
+      : { ok: false, detail: 'rescue paths not ready' }),
+  },
+  // 实际重试由壳的递归 startShell 驱动（带窗口句柄），引擎的 restarter 留空
+  restarter: { restart: () => undefined },
+  // [F2] 修复按钮数据源：收集最近自救事件（诊断摘要），供修复会话注入
+  onEvent: (event) => {
+    rescueEventLog.push(event);
+    if (rescueEventLog.length > 20) rescueEventLog.shift();
+  },
+});
 let restartTimer: NodeJS.Timeout | null = null;
+
+/** 本会话已隔离的内置插件包名（引擎台账 isolatedPluginIds 是会话内存级，不落盘；映射逻辑见 bundledDshPlugins.ts）。 */
+function isolatedBundledPackageNames(): string[] {
+  return isolatedBundledNames(rescueEngine.isolatedPluginIds);
+}
+
+/**
+ * 自救隔离成功后的共同动作：跳过该插件并递归 startShell 恢复，让其余功能正常。
+ * 不再写持久化隔离名单——隔离是引擎会话内存级的，下次启动自动重新尝试该插件
+ * （修复后即可正常加载）。boot 崩溃与 post-ready 崩溃共用同一套收尾。
+ */
+function applyIsolationAndRestart(win: BrowserWindow, packageName: string): Promise<void> {
+  writeLog('shell', `self-rescue isolated plugin: ${packageName} (isolated so far: ${rescueEngine.isolatedPluginIds.join('、')})`);
+  emitServiceStatus(win, 'starting', `已自动跳过问题插件 ${packageName}，正在恢复启动…`);
+  notifySelfRescue(`检测到插件 ${packageName} 导致运行崩溃，已自动停用并恢复服务`);
+  void generateDiagnosticReport({ kind: 'isolated', problem: `插件 ${packageName} 导致运行崩溃，已自动停用（移走，未删除）并恢复服务。`, plugin: packageName });
+  return startShell(win);
+}
+
+/** 同 startShellInner catch 内使用的变体：重入锁已在位，直调 Inner 避免被锁吞（[自救修复] 同类修复）。 */
+function applyIsolationAndRestartInner(win: BrowserWindow, packageName: string): Promise<void> {
+  writeLog('shell', `self-rescue isolated plugin: ${packageName} (isolated so far: ${rescueEngine.isolatedPluginIds.join('、')})`);
+  emitServiceStatus(win, 'starting', `已自动跳过问题插件 ${packageName}，正在恢复启动…`);
+  notifySelfRescue(`检测到插件 ${packageName} 导致启动失败，已自动停用并恢复启动`);
+  void generateDiagnosticReport({ kind: 'isolated', problem: `插件 ${packageName} 导致启动失败，已自动停用（移走，未删除）并恢复启动。`, plugin: packageName });
+  return startShellInner(win);
+}
+
+/**
+ * [隔离=移走] 恢复本会话被隔离的插件（用户点弹窗「恢复插件」按钮触发）：
+ * 逐个 restore（把隔离前备份的实体/配置装回运行环境）→ 全部成功则清引擎台账并重启服务。
+ * 恢复后必须重启：DSH 启动时读 manifest bundles / patch / node_modules，不重启不生效。
+ * 任一失败：提示明细、保留备份、不重启（状态未变更，服务照常跑）。
+ */
+async function restoreIsolatedPlugins(win: BrowserWindow): Promise<void> {
+  const plugins = rescueEngine.isolatedPluginIds.map((id) => ({ id }));
+  if (plugins.length === 0) return;
+  const results: string[] = [];
+  let allOk = true;
+  for (const plugin of plugins) {
+    const result = await (rescueIsolator().restore?.(plugin) ?? { ok: false, detail: 'restore not supported' });
+    if (result.ok) {
+      results.push(`${plugin.id} ✓`);
+    } else {
+      allOk = false;
+      results.push(`${plugin.id} ✗ ${result.detail ?? 'unknown error'}`);
+    }
+  }
+  if (!allOk) {
+    writeLog('shell', `self-rescue restore failed: ${results.join('; ')}`);
+    void dialog
+      .showMessageBox(win, {
+        type: 'error',
+        title: '恢复插件失败',
+        message: '部分插件未能恢复，备份已保留，可稍后重试。',
+        detail: results.join('\n'),
+      })
+      .catch(() => undefined);
+    return;
+  }
+  writeLog('shell', `self-rescue restored: ${results.join('; ')}`);
+  rescueEngine.markHealthy();
+  notifySelfRescue(`已恢复 ${plugins.length} 个插件，正在重启服务…`);
+  await restartService(win);
+}
+
+/** [热挂载失败盲区] 本会话已处理过的热挂载失败包名（防同一包反复触发刷屏）。 */
+const hotMountHandled = new Set<string>();
+
+/**
+ * [热挂载失败盲区] 服务活着但单插件挂不上（日志 `[dsh-market] hot mount of X failed`）：
+ * 进程级自救不触发（服务没死），但插件确实坏了。处置 = 自动隔离（移走，保留备份可恢复）
+ * → 重启服务 → 系统通知提醒。隔离器内部有白名单 + 官方保护，失败安全收敛不炸宿主。
+ */
+async function handleHotMountFailure(win: BrowserWindow, packageName: string): Promise<void> {
+  writeLog('shell', `hot mount failed detected: ${packageName}, isolating`);
+  const result = await rescueIsolator().isolate({ id: packageName, packageName });
+  if (!result.ok) {
+    writeLog('shell', `hot mount isolate failed: ${result.detail ?? 'unknown error'}`);
+    return;
+  }
+  notifySelfRescue(`检测到插件 ${packageName} 挂载失败，已自动停用并重启服务（可在弹窗中恢复）`);
+  void generateDiagnosticReport({ kind: 'hot-mount-failed', problem: `插件 ${packageName} 热挂载失败（服务存活但插件挂不上），已自动停用（移走，未删除）并重启服务。`, plugin: packageName });
+  await restartService(win);
+}
 
 /** 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避重启，最多 5 次；超过则回引导页 */
 function scheduleServiceRestart(win: BrowserWindow): void {
@@ -124,11 +295,18 @@ function scheduleServiceRestart(win: BrowserWindow): void {
   if (restartAttempts > 5) {
     writeLog('shell', 'auto-restart gave up after 5 attempts');
     restartAttempts = 0;
+    emitServiceStatus(win, 'failed', '服务连续崩溃，已停止自动重试（查看日志排查问题）');
+    notifySelfRescue('服务连续多次崩溃，已停止自动重试，请查看日志或使用修复功能');
+    // [诊断报告] 最坏情况（插件全挂、DSH 被迫干净启动）：报告已复制到剪贴板 + 落盘，
+    // 凭这段文本也能修复 + 恢复之前状态（用户可直接粘贴给 DSH 排错）
+    void generateDiagnosticReport({ kind: 'gave-up', problem: '服务连续多次崩溃，已停止自动重试。请根据下方诊断数据定位根因并给出修复步骤。' });
     void loadGuide(win, 'spawn-crash');
     return;
   }
   const delay = Math.min(1000 * 2 ** (restartAttempts - 1), 30000);
   if (restartTimer) clearTimeout(restartTimer);
+  emitServiceStatus(win, 'starting', `服务异常退出，正在自动重启（第 ${restartAttempts} 次）…`);
+  notifySelfRescue(`服务异常退出，正在自动重启（第 ${restartAttempts} 次）…`);
   restartTimer = setTimeout(() => {
     restartTimer = null;
     if (quitting || win.isDestroyed()) return;
@@ -255,10 +433,10 @@ trayItems.register({
 });
 
 trayItems.register({
-  id: 'stop',
-  title: '停止服务',
+  id: 'restart',
+  title: '重启服务',
   order: 20,
-  click: ({ stopService }) => stopService(),
+  click: ({ restartService }) => restartService(),
 });
 
 trayItems.register({
@@ -272,12 +450,32 @@ trayItems.register({
 });
 
 trayItems.register({
+  id: 'repair',
+  title: '修复',
+  order: 26,
+  click: ({ window }) => {
+    // [F2] 修复按钮：一键把诊断摘要 + 日志尾部 + 环境发给 DSH 新开会话，让 DSH 自修
+    void runRepairSession(window);
+  },
+});
+
+trayItems.register({
   id: 'logs',
   title: '查看日志',
   order: 30,
   click: ({ window }) => {
     // [D21]：托盘"查看日志"= 壳内日志页（壳日志 + 服务日志），不是打开文件夹
     void loadLogsPage(window);
+  },
+});
+
+trayItems.register({
+  id: 'backup',
+  title: '备份数据',
+  order: 28,
+  click: ({ window }) => {
+    // [整合包调研] 数据备份：一键把 dsh-home 配置层（含会话）备份到用户选择的位置
+    void runBackup(window);
   },
 });
 
@@ -368,33 +566,6 @@ function probePort(port: number): Promise<'dsh' | 'occupied' | 'free'> {
     .finally(() => clearTimeout(timer));
 }
 
-async function stopService(): Promise<void> {
-  if (!serviceProcess || serviceProcess.killed) return;
-  // 确认对话框（架构文档 §5.3 分档文案，[D72]）：硬停可能损坏正在写入的工作区文件
-  const options = {
-    type: 'warning' as const,
-    title: '停止服务',
-    message: '确定停止 DeepSeek Harness 服务？',
-    detail:
-      '任务执行中停止可能损坏正在写入的工作区文件，建议等任务完成或先用 agent 的停止指令。' +
-      '会话记录已增量落盘（$DSH_HOME/sessions），重启后可接回。',
-    buttons: ['停止服务', '取消'],
-    defaultId: 1,
-    cancelId: 1,
-  };
-  const { response } = mainWindow
-    ? await dialog.showMessageBox(mainWindow, options)
-    : await dialog.showMessageBox(options);
-  if (response !== 0) return;
-  // Windows 无分发 SIGTERM：V1 = 终止子进程（架构文档 §5.3）
-  // 置位 intentionalKill：exit 回调不再当崩溃自愈重启（用户明确停止）
-  intentionalKill = true;
-  serviceProcess.kill();
-  serviceProcess = null;
-  if (mainWindow) emitServiceStatus(mainWindow, 'stopped', '服务已停止');
-  updateTrayState();
-}
-
 function updateTrayState(): void {
   if (tray) {
     const running = serviceProcess !== null;
@@ -404,16 +575,25 @@ function updateTrayState(): void {
   }
 }
 
+/** 把更新按钮界面状态推给 DSH 页面右上角按钮（新增/进度/可装）：
+ *  页面加载晚于状态变化时，did-finish-load 后补推 getUpdateUiState()。 */
+function pushUpdateUi(state: UpdateUiState): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents
+    .executeJavaScript(`window.__dshSetUpdateState && window.__dshSetUpdateState(${JSON.stringify(state)})`)
+    .catch(() => undefined);
+}
+
 let tray: Tray | null = null;
 
-/** 托盘菜单模板：install-update 项仅在“有已下载待装版本”时出现，标题带版本号 */
+/** 托盘菜单模板：install-update 项仅在“有已下载待装版本”时出现 */
 function buildTrayTemplate(win: BrowserWindow): Electron.MenuItemConstructorOptions[] {
   return trayItems
     .list()
     .filter((item) => item.id !== 'install-update' || getPendingUpdateVersion() !== null)
     .map((item) => ({
-      label: item.id === 'install-update' ? `安装更新 v${getPendingUpdateVersion()}` : item.title,
-      click: () => item.click({ window: win, stopService, quit: () => app.quit() }),
+      label: item.id === 'install-update' ? '安装更新（已下载）' : item.title,
+      click: () => item.click({ window: win, restartService: () => void restartService(win), quit: () => app.quit() }),
     }));
 }
 
@@ -524,10 +704,14 @@ function checkStalls(): void {
   }
 }
 
-function notify(candidate: { type: 'result'; sessionId: string; title: string }): void {
+function nativePluginAllowsResultNotification(): boolean {
+  const config = getStore().load();
+  return config.notifications?.result !== false;
+}
+
+async function notify(candidate: { type: 'result'; sessionId: string; title: string }): Promise<void> {
   if (!Notification.isSupported()) return;
-  // [FR-4.3] 通知类型开关：设置页"通知"组关闭后不再弹（默认开）
-  if (getStore().load().notifications?.result === false) return;
+  if (!nativePluginAllowsResultNotification()) return;
   const n = new Notification({ title: APP_NAME, body: candidate.title });
   n.on('click', () => {
     // 唤起窗口；主界面已加载时定位到对应会话：写入 dsh.sessions.current 后 reload，
@@ -563,6 +747,51 @@ function showActionNotice(body: string): void {
     appendNotificationEntry(app.getPath('userData'), { time: Date.now(), title: APP_NAME, body: redact(body) });
   } catch {
     // 历史落盘失败不影响通知本身
+  }
+}
+
+/** 自救/自动重启提示节流：同一会话内至少间隔 8s，避免循环自救时刷屏 */
+let lastRescueNoticeAt = 0;
+function notifySelfRescue(body: string): void {
+  const now = Date.now();
+  if (now - lastRescueNoticeAt < 8000) return;
+  lastRescueNoticeAt = now;
+  if (!Notification.isSupported()) return;
+  new Notification({ title: APP_NAME, body, silent: true }).show();
+  try {
+    appendNotificationEntry(app.getPath('userData'), { time: Date.now(), title: APP_NAME, body: redact(body) });
+  } catch {
+    // 历史落盘失败不影响通知本身
+  }
+}
+
+/**
+ * [诊断报告] 任何检测到的问题都生成三段式诊断报告（问题段 + 状态段 + 指令段）：
+ * 自动复制到剪贴板 + 落盘 userData/diagnostic-reports/（环形保留 20 份）。
+ * 最坏情况（插件全挂、DSH 被迫干净启动）下，凭这段文本也能修复 + 恢复之前状态。
+ * 返回报告文本（供弹窗/通知引用），失败返回 null（不阻断自救主流程）。
+ */
+async function generateDiagnosticReport(input: {
+  kind: string;
+  problem: string;
+  plugin?: string;
+}): Promise<string | null> {
+  try {
+    const result = writeDiagnosticReport({
+      ...input,
+      ctx: await collectRepairContext(mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+      reportDir: reportDirFor(app.getPath('userData')),
+      copy: (text) => clipboard.writeText(text),
+    });
+    if (result.ok) {
+      writeLog('shell', `diagnostic report written: ${result.filePath}`);
+      return result.text;
+    }
+    writeLog('shell', `diagnostic report failed: ${result.error}`);
+    return null;
+  } catch (error) {
+    writeLog('shell', `diagnostic report error: ${String(error)}`);
+    return null;
   }
 }
 
@@ -632,14 +861,85 @@ async function runCompactCommand(win: BrowserWindow): Promise<void> {
   }
 }
 
+/** [F2] 收集修复会话上下文：cwd + 自救事件摘要 + 隔离插件 + shell/service 日志尾部 + 环境摘要 */
+async function collectRepairContext(win: BrowserWindow | null): Promise<RepairContext> {
+  const port = getStore().load().port ?? 3080;
+  const cwd = win && !win.isDestroyed() ? await resolveCurrentSessionCwd(win) : undefined;
+  const rescueSummary = rescueEventLog
+    .map((e) => `[${new Date(e.at).toLocaleTimeString()}] ${e.type}${'pluginId' in e ? ` ${e.pluginId}` : ''}${'reason' in e ? ` ${e.reason}` : ''}`)
+    .join('\n');
+  const isolated = isolatedBundledPackageNames().join('、');
+  return {
+    cwd,
+    rescueSummary: rescueSummary || undefined,
+    isolatedPlugins: isolated || undefined,
+    // 诊断场景：剥 ANSI + 只留关键行 + 限行数（避免把 TUI 渲染字符和无关日志灌给 DSH）
+    shellLogTail: readDiagnosticLogTail(logFile(app.getPath('userData'), 'shell.log')),
+    serviceLogTail: readDiagnosticLogTail(logFile(app.getPath('userData'), 'service.log')),
+    envSummary: `${APP_NAME} v${app.getVersion()} / 端口 ${port} / profile web`,
+  };
+}
+
+/** [F2] 修复按钮：一键把诊断摘要 + 日志尾部 + 环境发给 DSH 新开会话，让 DSH 自修，不打断当前对话 */
+async function runRepairSession(win: BrowserWindow): Promise<void> {
+  const port = getStore().load().port ?? 3080;
+  const result = await openRepairSession({
+    port,
+    ctx: await collectRepairContext(win),
+  });
+  if (result.ok) {
+    showActionNotice(`修复会话已创建（${result.sessionId}），DSH 正在分析诊断数据。`);
+  } else {
+    showActionNotice(result.error);
+  }
+}
+
+/** [整合包调研] 数据备份：一键把 dsh-home 配置层（含会话）备份到用户选择的位置 */
+async function runBackup(win: BrowserWindow): Promise<void> {
+  try {
+    const picked = await dialog.showOpenDialog(win, {
+      title: '选择备份位置',
+      buttonLabel: '备份到此处',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (picked.canceled || picked.filePaths.length === 0) return;
+    const targetRoot = picked.filePaths[0];
+    const result = await backupDshHome({ dshHome: desktopDshHome(shellInstallDir()), targetRoot });
+    if (result.ok) {
+      showActionNotice(`备份完成：${result.backupRoot}（${result.copied} 个文件${result.skipped.length > 0 ? `，跳过 ${result.skipped.length} 项` : ''}）`);
+    } else {
+      showActionNotice(result.error);
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    showActionNotice(`备份失败：${detail}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 启动序列（§5.1）
 // ---------------------------------------------------------------------------
+/** startShell 重入锁（[审查 B-M2]）：托盘重启 + 设置页重启/连续点击并发时，
+ *  只允许一路真正 spawn，其余直接返回——否则双服务实例/孤儿进程 + 端口漂移 */
+let startShellInFlight = false;
 async function startShell(win: BrowserWindow): Promise<void> {
+  if (startShellInFlight) return;
+  startShellInFlight = true;
+  try {
+    await startShellInner(win);
+  } finally {
+    startShellInFlight = false;
+  }
+}
+
+async function startShellInner(win: BrowserWindow): Promise<void> {
   const store = getStore();
   const config = store.load();
 
   const nodeOk = isNodeOk(process.versions.node);
+  // [2026-08-23 调研修正] 生态共识：压缩载荷只在安装器里（NSIS 7z 解压带进度条），
+  // 首启零解压。DSH 运行时与种子由安装器直接落到 <安装目录>/dsh 与 dsh-home-seed，
+  // 无 bundle 无首启解压（弃用方案 B）。
   // 已装 dsh 的检测位置：优先 config.installDir（历史下载），否则默认「安装目录/dsh」（三样同目录）。
   // 打包内置的 dsh 就落在这里（electron-builder extraFiles → <安装目录>/dsh/node_modules），
   // 所以安装后无需联网下载、直接就能检测到并启动。
@@ -704,7 +1004,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
       config3.dshChoice = 'existing';
       store3.save(config3);
       writeLog('shell', `manual dsh dir selected: ${dir}`);
-      return startShell(win);
+      // 重入锁已在位，直调 startShellInner 走完这条启动路径（return startShell 会被锁吞掉）
+      return startShellInner(win);
     }
   }
 
@@ -791,7 +1092,8 @@ async function startShell(win: BrowserWindow): Promise<void> {
         configMissing.dshChoice = 'existing';
         storeMissing.save(configMissing);
         writeLog('shell', `manual dsh dir selected: ${dir}`);
-        return startShell(win);
+        // 重入锁已在位，直调 startShellInner 走完这条启动路径（return startShell 会被锁吞掉）
+        return startShellInner(win);
       }
       emitServiceStatus(win, 'failed', '缺少可用的 Node.js');
       return loadGuide(win, gate.guidance);
@@ -809,6 +1111,23 @@ async function startShell(win: BrowserWindow): Promise<void> {
   // spawn（managed 模式：persona 经 home patch `$DSH_HOME/cordis.patch.yml` 注入，热重载即生效，
   // 无需 --patch；$DSH_HOME 统一指向壳自己的 dsh-home，保证提示词/persona 一定被服务读到）
   emitServiceStatus(win, 'starting', '正在启动服务…');
+  // [F1 首启播种·阶段1] 必须先于 ensureBundledDshPlugins：ensure 会在 profile 缺失时先建骨架
+  // （写 package.json），播种检测到 profile 存在就跳过——顺序反了首启拿不到 106 插件种子。
+  // settings 不在本阶段补：DSH 启动会写自己的默认 settings 覆盖（2026-08-23 实测），
+  // 阶段2（service ready 后）由 finalizeSeedSettings 补。
+  const firstRunSeed = seedProfileFromBundled({ installDir: shellInstallDir() });
+  if (firstRunSeed.seeded) writeLog('shell', `first-run seed applied: ${firstRunSeed.reason}`);
+  // Plugins must be synchronized before DSH boots; its client plugin table is read only at startup.
+  try {
+    ensureBundledDshPlugins({
+      dshHome: desktopDshHome(shellInstallDir()),
+      dshRuntimeRoot: dshDir, quarantined: isolatedBundledPackageNames(),
+      sourceRoot: bundledPluginsSourceRoot(),
+    });
+    writeLog('shell', 'bundled DSH plugins synchronized before service spawn');
+  } catch (error) {
+    writeLog('shell', `bundled DSH plugin pre-sync failed: ${String(error)}`);
+  }
   const usingInstalled =
     process.env.DSH_COMMAND === undefined && existsSync(installedBin);
   let spec: SpawnSpec;
@@ -841,7 +1160,27 @@ async function startShell(win: BrowserWindow): Promise<void> {
     // shell 由 SpawnSpec 决定：node 直跑 false（kill 杀得到真进程），dsh.cmd/pnpm 才 true
     shell: spec.shell ?? false,
   });
+  // spawn 本身失败（node 被占用/杀软拦截/路径被删/cmd 缺失）→ Node emit 'error'（exit 可能不触发）。
+  // 无监听会抛未捕获异常闪退，击穿自愈链（rescue/scheduleServiceRestart 都依赖 exit/readyPromise）。
+  // 这里只做立即清理；readyPromise 的 reject 在 executor 内（error 时 fail），避免挂到硬超时才判失败。
+  const handleSpawnError = (error: Error): void => {
+    writeLog('shell', `dsh spawn failed: ${error.message}`);
+    if (serviceProcess === child) {
+      serviceProcess = null;
+      emitServiceStatus(win, 'failed', `启动失败：${error.message}`);
+      updateTrayState();
+    }
+  };
+  child.on('error', handleSpawnError);
   serviceProcess = child;
+  crashStderrBuffer = '';
+  // profile 缺 pnpm-workspace.yaml 会让 pnpm 解析进壳根 workspace，market 装插件必炸
+  // （ERR_PNPM_UNEXPECTED_VIRTUAL_STORE）；预置/分发来的 profile 跳过了 dsh 的 init，启动时兜底补齐
+  const installDir = shellInstallDir();
+  const healedProfiles = ensureProfilePnpmWorkspaces(desktopDshHome(installDir));
+  if (healedProfiles.length > 0) writeLog('shell', `profile pnpm-workspace healed: ${healedProfiles.join('、')}`);
+  // 自救引擎的隔离器路径随本轮 installDir 解析结果更新
+  rescuePaths = { dshHome: desktopDshHome(installDir), dshRuntimeRoot: dshDir };
 
   let ready = false;
   let probeTimer: NodeJS.Timeout | null = null;
@@ -885,6 +1224,7 @@ async function startShell(win: BrowserWindow): Promise<void> {
     child.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       writeLog('service', text);
+      crashStderrBuffer = (crashStderrBuffer + text).slice(-8000);
       buffer += text;
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? '';
@@ -896,7 +1236,27 @@ async function startShell(win: BrowserWindow): Promise<void> {
         }
       }
     });
-    child.stderr?.on('data', (chunk: Buffer) => writeLog('service', chunk.toString()));
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      writeLog('service', text);
+      crashStderrBuffer = (crashStderrBuffer + text).slice(-8000);
+      // [热挂载失败盲区] 服务活着但单插件挂不上（如撞槽/版本不兼容）：进程级自救不触发，
+      // 用户只看到 HARNESS 横幅报错。检测日志特征 → 自动隔离（移走）→ 重启 → 提醒。
+      // 同一包只处理一次（防刷屏）；隔离器内部有白名单+官方保护，失败安全收敛。
+      // 缺口 2 扩展：scanHotMountLine 覆盖 hot mount / client-modules loaded without
+      // registering / loader entry 三种形态（纯函数，白名单防穿越）。
+      for (const line of text.split(/\r?\n/)) {
+        const hit = scanHotMountLine(line);
+        if (hit && !hotMountHandled.has(hit.packageName)) {
+          hotMountHandled.add(hit.packageName);
+          void handleHotMountFailure(win, hit.packageName);
+        }
+      }
+    });
+    // spawn 失败立即判失败（不挂到 5 分钟硬超时）：error 与 exit 都可能触发，双双接线到 fail
+    child.on('error', (error) => {
+      if (!ready) fail(new Error(`dsh spawn failed: ${error.message}`));
+    });
     child.on('exit', (code) => {
       const intentional = intentionalKill;
       intentionalKill = false;
@@ -910,7 +1270,31 @@ async function startShell(win: BrowserWindow): Promise<void> {
       }
       // 服务死亡自愈（[D90]）：曾就绪后崩溃 → 指数退避自动重启；启动期崩溃走上面的 reject。
       // 壳/用户主动 kill（停止/重启）不算崩溃，不重启。
-      if (ready && !quitting && !intentional) scheduleServiceRestart(win);
+      if (ready && !quitting && !intentional) {
+        // [自救扩展] post-ready 崩溃（端口 ready 但插件树加载阶段崩，如 dsh-mobile 版本不兼容）：
+        // 先前置诊断——只有命中并认得出肇事插件才喂引擎，避免非插件崩溃（no-diagnosis）锁死会话，
+        // 阻断后续所有自救。隔离成功则持久化名单 + 递归恢复，否则回落到退避重启。
+        const knownPlugins = collectKnownPlugins({
+          bundled: BUNDLED_DSH_PLUGINS,
+          dshHome: desktopDshHome(shellInstallDir()),
+        });
+        const crash = { phase: 'post-ready', stderr: crashStderrBuffer, knownPlugins } as const;
+        if (runDiagnosers(dshDiagnosers, crash)?.suspect) {
+          void (async () => {
+            const outcome = await rescueEngine.reportCrash(crash);
+            writeLog('shell', `self-rescue (post-ready) outcome: ${JSON.stringify(outcome)}`);
+            if (outcome.action === 'isolated' && outcome.packageName !== undefined) {
+              writeLog('shell', `post-ready crash isolated: ${outcome.packageName}, restarting shell`);
+              await applyIsolationAndRestart(win, outcome.packageName);
+              return;
+            }
+            // 未隔离（预算耗尽/已隔离过/诊断无肇事）→ 维持原退避重启
+            scheduleServiceRestart(win);
+          })();
+        } else {
+          scheduleServiceRestart(win);
+        }
+      }
     });
     // 端口就绪兜底：服务可能早就监听并响应了，但 ready URL 行晚到/被截断 → 直接探端口，更快更可靠。
     // 只要端口上能取到 DSH 首页（__DSH_BOOT__）就视为就绪。
@@ -942,6 +1326,22 @@ async function startShell(win: BrowserWindow): Promise<void> {
     store.save(config);
     writeLog('shell', `service ready on port ${port}`);
     restartAttempts = 0;
+    badYamlRestoreAttempts = 0;
+    // [F1 首启播种·阶段2] DSH 已完成初始化（不会再覆盖 settings）→ 补种子的完整配置
+    // （皮肤/主题/权限/模型引用/插件配置；API key 用户自配）→ 删 dsh-home-seed 残留。
+    const seedFinal = finalizeSeedSettings({ installDir: shellInstallDir() });
+    if (seedFinal.applied) writeLog('shell', `first-run settings seeded: ${seedFinal.reason}`);
+    try {
+      ensureBundledDshPlugins({
+        dshHome: desktopDshHome(shellInstallDir()),
+        dshRuntimeRoot: dshDir, quarantined: isolatedBundledPackageNames(),
+        sourceRoot: bundledPluginsSourceRoot(),
+      });
+      writeLog('shell', 'bundled DSH plugins synchronized into runtime node_modules and web profile');
+    } catch (error) {
+      writeLog('shell', `bundled DSH plugin sync failed: ${String(error)}`);
+    }
+
     // [bugfix] win32 首次启动：把捆绑的 win-terminal-inspector 插件装进 web profile，
     // 修掉 DSH 在 Windows 上 spawnTerminal 抛 "terminal inspection is unsupported on platform win32" 的缺口。
     // 服务就绪后 profile 已初始化；patch 写入走 DSH 的 HMR 热加载，无需重启。装一次记一次（可逆、不打扰）。
@@ -978,13 +1378,91 @@ async function startShell(win: BrowserWindow): Promise<void> {
     } else {
       await loadOnboarding(win);
     }
+    // 自救成功：若本次启动隔离过肇事插件，通知用户（其余功能正常），随后清空引擎窗口状态
+    if (rescueEngine.isolatedPluginIds.length > 0) {
+      const names = rescueEngine.isolatedPluginIds.join('、');
+      writeLog('shell', `self-rescue recovered after isolating: ${names}`);
+      rescueEngine.markHealthy();
+      void dialog
+        .showMessageBox(win, {
+          type: 'warning',
+          title: '已自动修复启动问题',
+          message: `已自动跳过导致崩溃的插件：${names}`,
+          detail: '软件其余功能正常。插件已从运行环境移走（未删除），可立即恢复；若仍崩溃建议重装或卸载。\n\n点「复制诊断报告」把诊断信息复制到剪贴板，粘贴给 AI 即可排错。',
+          buttons: ['知道了', '恢复插件', '复制诊断报告'],
+          defaultId: 0, // 安全默认：不误触恢复/复制
+        })
+        .then(({ response }) => {
+          if (response === 1) void restoreIsolatedPlugins(win);
+          else if (response === 2) {
+            // [排错] 复制诊断报告到剪贴板，用户自己粘贴给 AI（不自动发会话）
+            void generateDiagnosticReport({ kind: 'isolated', problem: `插件 ${names} 导致启动失败，已自动停用（移走，未删除）并恢复启动。` })
+              .then((text) => {
+                showActionNotice(text ? '诊断报告已复制到剪贴板，粘贴给 AI 即可排错。' : '诊断报告生成失败，请查看日志。');
+              });
+          }
+        })
+        .catch(() => undefined);
+    }
     emitServiceStatus(win, 'running', `服务已启动（端口 ${port}）`);
     subscribeEvents(port);
     adoptThemeFromDsh(port);
     updateTrayState();
   } catch (error) {
     writeLog('shell', `spawn failed: ${String(error)}`);
-    emitServiceStatus(win, 'failed', `启动失败：${String(error)}`);
+    // 插件自救（shell-rescue）：诊断 → 窗口预算决策 → 隔离 → 自动重试；放弃则走原回落
+    const knownPlugins = collectKnownPlugins({
+      bundled: BUNDLED_DSH_PLUGINS,
+      dshHome: desktopDshHome(shellInstallDir()),
+    });
+    const outcome = await rescueEngine.reportCrash({ phase: 'boot', stderr: crashStderrBuffer, knownPlugins });
+    writeLog('shell', `self-rescue outcome: ${JSON.stringify(outcome)}`);
+    if (outcome.action === 'repaired') {
+      // [自救修复通道] 配置错误（如 patch 双挂）已自动修复：直接重启服务，不弹引导页。
+      // 此处仍处于 startShellInner 的 catch（重入锁已在位），直调 startShellInner 而非
+      // startShell——否则被 startShellInFlight 吞掉，修复后的重启静默丢弃
+      writeLog('shell', `self-rescue repaired ${outcome.repairKind} (${outcome.target}), restarting shell`);
+      emitServiceStatus(win, 'starting', `已自动修复启动问题（${outcome.target}），正在恢复启动…`);
+      notifySelfRescue(`已自动修复启动问题（${outcome.target}），正在恢复启动…`);
+      return startShellInner(win);
+    }
+    if (outcome.action === 'isolated' && outcome.packageName !== undefined) {
+      // 同 catch 内：直调 applyIsolationAndRestart 内部用 startShellInner 重启（重入锁已在持有）
+      writeLog('shell', `self-rescue isolated: ${outcome.packageName}, restarting shell`);
+      emitServiceStatus(win, 'starting', `已自动隔离问题插件 ${outcome.packageName}，正在恢复启动…`);
+      notifySelfRescue(`检测到插件 ${outcome.packageName} 导致启动失败，已自动停用并恢复启动`);
+      return applyIsolationAndRestartInner(win, outcome.packageName);
+    }
+    // [坏 YAML 自动回退] 插件问题/管理操作可能写坏 cordis.patch.yml（YAML 解析失败 → DSH 起不来）。
+    // 检测到 YAML 错误特征 → 用写前备份（cordis.patch.yml.bak）自动恢复 → 重启。
+    // 备份由独立库隔离器/repair 每次改写前生成；回退前净化（剔除已隔离插件的 insert 块，
+    // 防 module-not-found 继续崩）；无备份则走原 give-up 回落。
+    if (/YAMLException|failed to parse overlay|bad indentation|unexpected end of the stream/i.test(crashStderrBuffer)) {
+      const dshHome = desktopDshHome(shellInstallDir());
+      const patchPath = join(dshHome, 'profiles', 'web', 'cordis.patch.yml');
+      const bakPath = `${patchPath}.bak`;
+      // 对抗审查 C3 防护：.bak 也坏/恢复无效时（坏的是其他 overlay 等），最多回退 3 次，
+      // 超限转 give-up 引导页——否则 return startShellInner 无限递归，restartAttempts 不覆盖此路径
+      badYamlRestoreAttempts += 1;
+      if (existsSync(bakPath) && badYamlRestoreAttempts <= 3) {
+        writeLog('shell', `bad yaml detected, restoring from backup: ${bakPath} (attempt ${badYamlRestoreAttempts})`);
+        const bakText = readFileSync(bakPath, 'utf8');
+        const sanitized = sanitizePatchForRestore({ dshHome, dshRuntimeRoot: dshDir }, bakText);
+        writeFileSync(patchPath, sanitized ?? bakText, 'utf8');
+        emitServiceStatus(win, 'starting', '检测到配置文件损坏，已自动恢复备份，正在重启…');
+        notifySelfRescue('检测到配置文件损坏，已自动恢复备份，正在重启…');
+        return startShellInner(win);
+      }
+      writeLog('shell', `bad yaml restore gave up after ${badYamlRestoreAttempts} attempts (backup exists: ${existsSync(bakPath)})`);
+    }
+    if (rescueEngine.isolatedPluginIds.length > 0) {
+      emitServiceStatus(win, 'failed', `启动失败（已自动停用 ${rescueEngine.isolatedPluginIds.length} 个问题插件仍无法启动）：${String(error)}`);
+    } else {
+      emitServiceStatus(win, 'failed', `启动失败：${String(error)}`);
+    }
+    // [最坏场景] DSH 起不来、壳进不去：也要生成诊断报告（剪贴板 + 落盘），
+    // 用户凭报告文本就能发给 AI 排错——不依赖 DSH 服务
+    void generateDiagnosticReport({ kind: 'spawn-crash', problem: `服务启动失败：${String(error)}` });
     loadGuide(win, 'spawn-crash');
   }
 }
@@ -1080,6 +1558,15 @@ function createWindow(): BrowserWindow {
     }
     event.preventDefault();
   });
+  // 弹窗护栏：DSH 页面里的 window.open / target=_blank 一律不弹系统浏览器或额外壳窗口。
+  // 内部 web UI（127.0.0.1/localhost）静默关闭——内容已在壳窗口，不重复弹出（对应「webui 藏起来」）；
+  // 外部 http(s) 链接走系统默认浏览器（只有用户主动点击才到这里）。
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    writeLog('shell', `window-open intercepted: ${url}`);
+    if (/^https?:\/\/(127\.0\.0\.1|localhost)([:\/]|$)/.test(url)) return { action: 'deny' };
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url).catch(() => undefined);
+    return { action: 'deny' };
+  });
   // 右键菜单：Electron 默认不提供原生右键菜单，这里补上复制/粘贴/剪切/全选/撤销重做
   win.webContents.on('context-menu', (_event, params) => {
     const template: Electron.MenuItemConstructorOptions[] = [];
@@ -1112,17 +1599,45 @@ function createWindow(): BrowserWindow {
       win.webContents.executeJavaScript(DRAG_BAR_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(PAGE_THEME_CSS).catch(() => undefined);
     } else if (url.startsWith('http://127.0.0.1')) {
-      win.webContents.executeJavaScript(FLOATING_CONTROLS_SCRIPT).catch(() => undefined);
+      // 先注入悬浮控制脚本（定义 window.__dshSetUpdateState），完成后补推更新按钮当前状态——
+      // 页面加载晚于 update-available/download 的兜底，保证右上角"新版本"可见
+      win.webContents
+        .executeJavaScript(FLOATING_CONTROLS_SCRIPT)
+        .catch(() => undefined)
+        .then(() => pushUpdateUi(getUpdateUiState()));
       win.webContents.executeJavaScript(DRAG_BAR_SCRIPT).catch(() => undefined);
       win.webContents.executeJavaScript(VIEW_TAB_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(DESKTOP_CSS).catch(() => undefined);
       win.webContents.insertCSS(CODEX_SKIN_CSS).catch(() => undefined);
-      // 官方设置扩展：所有壳新设置都作为选项放进 DSH 自带设置（用户拍板）
-      win.webContents.executeJavaScript(SETTINGS_EXTENSION_SCRIPT).catch(() => undefined);
       // 文件路径动作（右键菜单/直接打开/框选复制，[FR-11.1] 壳承接）
       win.webContents.executeJavaScript(FILE_PATH_EXTENSION_SCRIPT).catch(() => undefined);
       win.webContents.insertCSS(FILE_PATH_SELECTABLE_CSS).catch(() => undefined);
     }
+  });
+  // [缺口 1] 渲染进程崩溃：自动 reload（2 分钟内最多 3 次）→ 停手提示；
+  // STATUS_BREAKPOINT（0x80000003）是安全软件/调试器打断特征 → 提示杀软类文案、不自动 reload。
+  // 退出路径（quitting/窗口已销毁）一律不干预——webContents.reload 在销毁后调用会抛异常（审查 C1）
+  win.webContents.on('render-process-gone', (_event, details) => {
+    if (quitting || win.isDestroyed()) return;
+    const { decision, nextState } = decideRenderGone(renderGoneState, details, Date.now());
+    renderGoneState = nextState;
+    if (decision.kind === 'ignore') return;
+    if (decision.kind === 'security-guard') {
+      writeLog('shell', `renderer gone (security guard suspect, exit ${details.exitCode}): ${details.reason}`);
+      // 节流：2 分钟窗口内只提示一次，防杀软持续断点刷屏（审查 I1）
+      if (renderGoneNotifiedAt === 0 || Date.now() - renderGoneNotifiedAt > RENDER_GONE_WINDOW_MS) {
+        renderGoneNotifiedAt = Date.now();
+        notifySelfRescue('界面渲染进程被安全软件/调试器打断，已停止自动恢复。请检查杀毒软件是否拦截，或重新打开窗口。');
+      }
+      return;
+    }
+    if (decision.kind === 'give-up') {
+      writeLog('shell', `renderer gone ${nextState.crashes} times in 2min, giving up auto reload: ${details.reason}`);
+      notifySelfRescue('界面连续多次崩溃，已停止自动恢复。请使用修复功能或查看日志。');
+      return;
+    }
+    writeLog('shell', `renderer gone, reloading: ${details.reason}`);
+    win.webContents.reload();
   });
   return win;
 }
@@ -1287,6 +1802,20 @@ function runNpmInstall(
     let downloaded = 0; // 实际下载的包（tarball）数
     let currentPkg = '';
     let stderrBuf = '';
+    let settled = false;
+    const settle = (code: number | null): void => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve(code);
+    };
+    // 网络挂起兜底（[复查 B-2]）：npm 长时间无输出（断网/镜像卡死）时不永久卡住安装流程，
+    // 杀子进程并返回非零（页面 error 步可重试）；超时窗口 10 分钟（npm 全量装 dsh 依赖）
+    const timeout = setTimeout(() => {
+      writeLog('shell', 'npm install timed out, killing child');
+      if (!child.killed) child.kill();
+      settle(1);
+    }, 10 * 60 * 1000);
     sendProgress(win, { phase: 'install', percent: -1, detail: '正在解析依赖清单…' });
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
@@ -1310,10 +1839,10 @@ function runNpmInstall(
     child.stdout?.on('data', (chunk: Buffer) => writeLog('shell', `npm: ${chunk.toString()}`));
     child.on('error', (error) => {
       writeLog('shell', `npm spawn failed: ${String(error)}`);
-      resolve(null);
+      settle(null);
     });
     child.on('exit', (code) => {
-      resolve(code);
+      settle(code);
     });
   });
 }
@@ -1403,7 +1932,15 @@ const shellOps: ShellOps = {
   },
   checkForUpdates: () => {
     writeLog('shell', 'checkForUpdates op called');
-    checkForUpdatesManually();
+    // 更新提示条"一键下载/安装"统一入口：已有待装版本 → 确认安装；
+    // 有可下载新版本 → 开始下载；都没有 → 检查更新（下载不再自动触发，见 autoDownload=false）
+    if (getPendingUpdateVersion()) {
+      void installPendingUpdate();
+    } else if (getAvailableUpdateVersion()) {
+      startDownload();
+    } else {
+      checkForUpdatesManually();
+    }
   },
   choosePort: async (port) => {
     const store = getStore();
@@ -1477,6 +2014,21 @@ const shellOps: ShellOps = {
     if (action === 'minimize') win.minimize();
     else if (action === 'toggle-maximize') (win.isMaximized() ? win.unmaximize() : win.maximize());
     else if (action === 'close') win.close(); // close 事件 → 缩托盘（[FR-3.1]）
+  },
+  pluginList: () => listPlugins(shellInstallDir()),
+  pluginSetEnabled: (input) => setPluginEnabled(shellInstallDir(), input.id, input.enabled),
+  pluginSetRemoved: (input) => setPluginRemoved(shellInstallDir(), input.id, input.removed),
+  troubleshoot: async () => {
+    // 引导页「复制诊断报告」：生成三段式诊断报告（剪贴板 + 落盘），用户自己粘贴给 AI 排错。
+    // 引导页场景主窗可能是自身（已销毁时用 null，cwd 定位自动跳过）。
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    try {
+      const text = await generateDiagnosticReport({ kind: 'spawn-crash', problem: '服务启动失败，请根据下方诊断数据定位根因并给出修复步骤。' });
+      return text ? { ok: true } : { ok: false, error: '诊断报告生成失败，请查看日志。' };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: `复制诊断报告失败：${detail}` };
+    }
   },
   saveConnection: async (cfg) => {
     const port = getStore().load().port ?? 3080;
@@ -1732,7 +2284,28 @@ if (!gotLock) {
     const win = createWindow();
     setupTray(win);
     registerBridge(shellOps);
-    setupAutoUpdater({ onPendingChange: updateTrayState, uiTheme: resolveUiTheme }); // [D78] 自动检查 + 自动下载（安装用户确认）；[O1] 托盘动态入口 + 进度窗随应用主题
+    setupAutoUpdater({ onPendingChange: updateTrayState, uiTheme: resolveUiTheme, onUiUpdate: pushUpdateUi, configStore: getStore() }); // [D78] 自动检查 + 自动下载（安装用户确认）；[O1] 托盘动态入口 + 进度窗随应用主题 + 右上角按钮状态；[稍后持久化] 壳配置注入
+    // [整合包调研] 全局呼出快捷键：Ctrl+Shift+Space 呼出/聚焦窗口（注册失败只记日志，不影响启动）
+    if (!globalShortcut.register(GLOBAL_TOGGLE_SHORTCUT, () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    })) {
+      writeLog('shell', describeShortcutRegistration(false, GLOBAL_TOGGLE_SHORTCUT));
+    }
+    // [整合包调研] 应用内快捷键：Ctrl+Shift+C/F/B/L → 压缩/修复/备份/日志（只在壳窗口聚焦时生效）
+    win.webContents.on('before-input-event', (event, input) => {
+      const action = matchShortcut(input);
+      if (!action) return;
+      // 壳快捷键吃掉按键，不冒泡给 DSH 页面（避免页面同时响应同名组合）
+      event.preventDefault();
+      if (action === 'compact') void runCompactCommand(win);
+      else if (action === 'repair') void runRepairSession(win);
+      else if (action === 'backup') void runBackup(win);
+      else if (action === 'logs') void loadLogsPage(win);
+    });
     // 三态主题：操作系统深浅色变化时只刷新壳自身外观（图标/窗口底色）。
     // 不向 DSH 推送——主题单一事实源是 DSH 官方设置，用户在官方设置里的选择
     // 不能被壳覆盖；DSH 在跟随系统模式下会自行响应 OS 变化。

@@ -110,6 +110,18 @@
         margin: 4px 0 12px; font-size: 12px; color: var(--error);
         word-break: break-all; max-height: 60px; overflow: auto;
       }
+      /* 更新日志（releaseNotes，来自发布源；仅 downloaded 阶段展示） */
+      .notes {
+        margin: 0 0 12px; padding: 10px 12px;
+        border: 1px solid var(--line); border-radius: 9px;
+        background: var(--bg);
+        font-size: 12px; line-height: 1.55; color: var(--text-2);
+        text-align: left; max-height: 96px; overflow: auto;
+      }
+      .notes h1, .notes h2, .notes h3 { font-size: 12px; font-weight: 600; margin: 6px 0 2px; color: var(--text); }
+      .notes p { margin: 4px 0; }
+      .notes ul { margin: 4px 0; padding-left: 18px; }
+      .notes a { color: var(--brand); }
 
       .actions { display: flex; justify-content: center; gap: 10px; margin-top: 6px; min-height: 34px; }
       .actions button {
@@ -155,7 +167,9 @@
         <span id="speed"></span>
       </div>
       <p class="errorline" id="error" hidden></p>
+      <div class="notes" id="notes" hidden></div>
       <div class="actions">
+        <button id="btn-download" class="btn-primary" hidden>下载</button>
         <button id="btn-install" class="btn-primary" hidden>现在安装</button>
         <button id="btn-dismiss" class="btn-ghost" hidden>稍后</button>
         <button id="btn-retry" class="btn-primary" hidden>重试</button>
@@ -180,18 +194,29 @@
 
       function render(state) {
         if (!state) return;
-        show('icon-download', state.phase === 'downloading' || state.phase === 'checking');
+        show('icon-download', state.phase === 'downloading' || state.phase === 'checking' || state.phase === 'available');
         show('icon-check', state.phase === 'downloaded');
         show('icon-alert', state.phase === 'error');
+        show('btn-download', state.phase === 'available');
         show('btn-install', state.phase === 'downloaded');
         show('btn-dismiss', state.phase === 'downloaded');
         show('btn-retry', state.phase === 'error');
         show('error', state.phase === 'error');
         show('btn-x', true);
+        // 非 downloaded 阶段清掉日志区（避免残留上一帧内容）
+        if (state.phase !== 'downloaded') {
+          $('notes').hidden = true;
+          $('notes').innerHTML = '';
+        }
 
         if (state.phase === 'checking') {
           $('title').textContent = '正在检查更新…';
           $('subtitle').textContent = '';
+          setProgress(0, '', '');
+        } else if (state.phase === 'available') {
+          // 发现新版本：提示用户点击「下载」（autoDownload=false，下载由用户触发）
+          $('title').textContent = state.version ? '发现新版本 v' + state.version : '发现新版本';
+          $('subtitle').textContent = '点击「下载」开始下载，完成后会等你确认安装';
           setProgress(0, '', '');
         } else if (state.phase === 'downloading') {
           $('title').textContent = state.version ? '正在下载 v' + state.version : '正在下载新版本…';
@@ -208,6 +233,14 @@
           $('title').textContent = state.version ? 'v' + state.version + ' 已下载好' : '新版本已下载好';
           $('subtitle').textContent = '安装会重启应用，后台服务与任务不受影响，重启后自动接回会话';
           setProgress(100, '100%', '');
+          // 更新日志（releaseNotes）：有内容才展示，避免空框
+          var notes = $('notes');
+          if (state.releaseNotes) {
+            notes.innerHTML = state.releaseNotes;
+            notes.hidden = false;
+          } else {
+            notes.hidden = true;
+          }
         } else if (state.phase === 'error') {
           $('title').textContent = '更新出了问题';
           $('subtitle').textContent = '';
@@ -222,6 +255,7 @@
       }
 
       $('btn-x').addEventListener('click', function () { update.action('dismiss'); });
+      $('btn-download').addEventListener('click', function () { update.action('download'); });
       $('btn-install').addEventListener('click', function () { update.action('install'); });
       $('btn-dismiss').addEventListener('click', function () { update.action('dismiss'); });
       $('btn-retry').addEventListener('click', function () { update.action('retry'); });

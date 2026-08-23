@@ -34,6 +34,10 @@ const API = {
   filePathMenu: 'dsh:filePathMenu',
   filePathOpen: 'dsh:filePathOpen',
   windowControl: 'dsh:windowControl',
+  pluginList: 'dsh:pluginList',
+  pluginSetEnabled: 'dsh:pluginSetEnabled',
+  pluginSetRemoved: 'dsh:pluginSetRemoved',
+  troubleshoot: 'dsh:troubleshoot',
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',
 };
@@ -72,11 +76,28 @@ const dshShell = {
   filePathMenu: (path) => ipcRenderer.invoke(API.filePathMenu, path),
   filePathOpen: (path) => ipcRenderer.invoke(API.filePathOpen, path),
   windowControl: (action) => ipcRenderer.invoke(API.windowControl, action),
+  troubleshoot: () => ipcRenderer.invoke(API.troubleshoot),
   onServiceStatus: (cb) => subscribe(API.onServiceStatus, cb),
   onProgress: (cb) => subscribe(API.onProgress, cb),
 };
 
 contextBridge.exposeInMainWorld('dshShell', Object.freeze(dshShell));
+
+// ---------------------------------------------------------------------------
+// 插件管理桥（[插件管理实现计划]：前端 @deepseek-ai/dsh-plugin-manager 通过
+// window.dshDesktop.pluginManager 拿清单 + 开关）。与 dshShell 是两个命名空间。
+// 清单/开关数据全在主进程（pluginManager.ts），这里只做 ipcRenderer.invoke 转发。
+// ---------------------------------------------------------------------------
+const dshDesktop = {
+  pluginManager: {
+    list: () => ipcRenderer.invoke(API.pluginList),
+    setEnabled: (id, enabled) => ipcRenderer.invoke(API.pluginSetEnabled, { id, enabled }),
+    setRemoved: (id, removed) => ipcRenderer.invoke(API.pluginSetRemoved, { id, removed }),
+  },
+};
+
+contextBridge.exposeInMainWorld('dshDesktop', Object.freeze(dshDesktop));
+
 
 // ---------------------------------------------------------------------------
 // 拖拽引用路径（[FR-11.1]）：拖文件进对话 → 输入框插入 @绝对路径，取代「不支持的文件格式」。

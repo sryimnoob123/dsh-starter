@@ -1,0 +1,51 @@
+{
+  "name": "@moonquake2004/dsh-doctor",
+  "version": "0.4.3",
+  "description": "Offline diagnostic for DeepSeek Harness — 28 built-in + 5 catalog checks across env/profile/session (Layer A checks-as-data), self-update (Layer B), and a semi-automatic LLM observer (Layer C, --observe); Doctor panel in web UI settings.",
+  "main": "lib/index.js",
+  "files": [
+    "README.md",
+    "README.zh.md",
+    "checks.json",
+    "client",
+    "cordis.patch.yml",
+    "dsh-doctor.mjs",
+    "lib",
+    "observer.mjs"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "author": "moonquake2004 <moonquake2004@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonquake2004/dsh-doctor.git"
+  },
+  "homepage": "https://github.com/moonquake2004/dsh-doctor",
+  "bin": {
+    "dsh-doctor": "./dsh-doctor.mjs"
+  }
+}

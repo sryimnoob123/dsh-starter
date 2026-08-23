@@ -217,6 +217,12 @@ export const BRIDGE_API = {
   // ---- 文件路径动作（对话内文件路径的右键菜单 / 直接打开，壳承接 [FR-11.1]） ----
   filePathMenu: 'dsh:filePathMenu',
   filePathOpen: 'dsh:filePathOpen',
+  // ---- 插件管理（设置页「插件 → 管理」，@deepseek-ai/dsh-plugin-manager 桥） ----
+  pluginList: 'dsh:pluginList',
+  pluginSetEnabled: 'dsh:pluginSetEnabled',
+  pluginSetRemoved: 'dsh:pluginSetRemoved',
+  // ---- 一键排错（引导页「排错」按钮：诊断+日志发给 DSH 新会话） ----
+  troubleshoot: 'dsh:troubleshoot',
   // ---- 事件订阅（壳 → 页面） ----
   onServiceStatus: 'dsh:status',
   onProgress: 'dsh:progress',
@@ -285,4 +291,22 @@ export type WindowAction = 'minimize' | 'toggle-maximize' | 'close';
 export function parseWindowAction(raw: unknown): WindowAction | null {
   const actions: readonly string[] = ['minimize', 'toggle-maximize', 'close'];
   return typeof raw === 'string' && actions.includes(raw) ? (raw as WindowAction) : null;
+}
+
+/** 插件开关载荷：id 非空字符串 ≤200、enabled 布尔（插件管理桥） */
+export function parsePluginSetEnabledInput(raw: unknown): { id: string; enabled: boolean } | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.id !== 'string' || obj.id.trim() === '' || obj.id.length > 200) return null;
+  if (typeof obj.enabled !== 'boolean') return null;
+  return { id: obj.id.trim(), enabled: obj.enabled };
+}
+
+/** 插件移除载荷：id 非空字符串 ≤200、removed 布尔（插件管理桥，@deepseek-ai/dsh-plugin-manager setRemoved） */
+export function parsePluginSetRemovedInput(raw: unknown): { id: string; removed: boolean } | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.id !== 'string' || obj.id.trim() === '' || obj.id.length > 200) return null;
+  if (typeof obj.removed !== 'boolean') return null;
+  return { id: obj.id.trim(), removed: obj.removed };
 }

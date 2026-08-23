@@ -1,6 +1,3 @@
 # dsh-desktop 桌面基线（架构文档 §8.7）
 # 经启动边界 `--patch` 传入（spawn 时），壳不写 $DSH_HOME（[D70]/§3.2）。
 # 该 overlay 位于用户层之上（调研 A：profile-boot.ts:112），参与热更。
-
-- id: agent-instructions
-  disabled: false
