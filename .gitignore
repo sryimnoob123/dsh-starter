@@ -5,10 +5,10 @@ vendor/*
 # 捆绑的第三方 bug-fix 插件（需入库；vendor/dsh 仍不入库，由 prepare-dsh 重新下载）
 !vendor/win-terminal-inspector/
 !vendor/win-terminal-inspector/**
-# 详细内部文档 / 技能 / 项目指令（本地维护，不发 GitHub；只发精简的 docs/技术文档.md）
+# 详细内部文档 / 技能 / 项目指令（本地维护，不发 GitHub；README 引用的截图除外）
 skills/
 AGENTS.md
 docs/*
-!docs/技术文档.md
+!docs/screenshot-main.png
 *.log
 .DS_Store
