@@ -70,6 +70,10 @@ DeepSeek Harness 的桌面客户端。一个 Electron 壳，把官方 Web 界面
 
 三样同目录（exe + dsh + dsh-home），卸载即清。
 
+**数据保护**：从 v0.4.8 起，更新时自动备份 `dsh-home`（会话/技能/配置/凭据）到临时目录，更新后自动恢复——即使旧版本卸载器删掉安装目录，数据也安全。
+
+**手动备份（可选）**：找到安装目录（桌面快捷方式 → 右键 → 打开文件所在位置），把整个 `dsh-home` 文件夹复制到别处（U 盘/桌面/网盘）即可。更新后数据丢失时，从 `%TEMP%\dsh-home-backup` 里找回（按 Win+R 输入 `%TEMP%` 回车，找 `dsh-home-backup` 文件夹）。
+
 ### 更新日志
 
 见 [CHANGELOG.md](CHANGELOG.md)。
