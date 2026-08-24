@@ -115,12 +115,14 @@ export const dshFallbackBlockerRule = {
         const m = FALLBACK_BLOCKER.exec(crash.stderr);
         if (!m)
             return null;
-        // Windows 报错路径用 `\` 分隔 scoped 包，捕获组会带进分隔符；归一化为 `/` 再过白名单
-        // （白名单仍是防穿越的唯一闸门，归一化不绕过校验）
+        // 2026-08-23 升级实测教训：DSH 0.1.1-rc.2 的 healProfilesModuleFallback 对整个依赖闭包
+        // BFS 校验，一次只报第一个实体目录 → 逐个 remove-fallback-blocker 修不完（250 个实体
+        // vs 3 次预算）。一律给整目录修复（purge-fallback-blockers：一次清空全部非 symlink
+        // 实体让 DSH 重建闭包）；单包修复保留给白名单外的兼容场景（实际不再产出）。
         const pkg = stripVersionSuffix(m[1] ?? '').replace(/[\\/]+/g, '/');
         if (!isValidNpmPackageName(pkg))
             return { kind: 'fallback-blocker', detail: m[0] };
-        return { kind: 'fallback-blocker', repair: { kind: 'remove-fallback-blocker', target: pkg }, detail: m[0] };
+        return { kind: 'fallback-blocker', repair: { kind: 'purge-fallback-blockers', target: '' }, detail: m[0] };
     },
 };
 export const dshDiagnosers = [

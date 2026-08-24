@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { isValidNpmPackageName } from './package-name.js';
 /** 官方组件不属于插件自救范畴，永不隔离。 */
@@ -230,6 +230,60 @@ export function createDshIsolator(options) {
                     const sanitized = sanitizePatchForRestore({ dshHome: options.dshHome, dshRuntimeRoot: options.dshRuntimeRoot, profile: profileName }, bakText);
                     writeFileSync(patchPath, sanitized ?? bakText, 'utf8');
                     return { ok: true, detail: 'restored patch from backup' };
+                }
+                // [安装回退被挡·整目录形态] purge-fallback-blockers：profiles/node_modules 下
+                // 存在多个非 symlink 实体目录（DSH 0.1.1-rc.2 要求整个 fallback 目录是 symlink 闭包，
+                // healProfilesModuleFallback BFS 校验整个依赖闭包，一次只报第一个实体 → 逐个
+                // remove-fallback-blocker 修不完 250 个实体、3 次预算就耗尽）。一次性把全部
+                // 非 symlink 实体移入 backupRoot（移走不删除），DSH 重启重建整个闭包。
+                if (request.kind === 'purge-fallback-blockers') {
+                    const fallbackDir = join(options.dshHome, 'profiles', 'node_modules');
+                    if (!isInside(options.dshHome, fallbackDir)) {
+                        return { ok: false, detail: `path escapes dshHome: ${fallbackDir}` };
+                    }
+                    if (!existsSync(fallbackDir))
+                        return { ok: true, detail: 'already-clean' };
+                    // 遍历顶层条目：symlink 保留；实体目录整体移入 backupRoot/fallback-<名>。
+                    // 顶层文件（如 .pnpm 锁文件残留）不处置——只移目录，避免误删无关文件。
+                    let moved = 0;
+                    let failed = 0;
+                    for (const name of readdirSync(fallbackDir)) {
+                        const entry = join(fallbackDir, name);
+                        let isLink = false;
+                        try {
+                            isLink = lstatSync(entry).isSymbolicLink();
+                        }
+                        catch {
+                            continue;
+                        }
+                        if (isLink)
+                            continue;
+                        if (!lstatSync(entry).isDirectory())
+                            continue;
+                        const backupDir = backupDirFor(`fallback-${name}`);
+                        if (existsSync(backupDir))
+                            rmSync(backupDir, { recursive: true, force: true });
+                        mkdirSync(backupDir, { recursive: true });
+                        try {
+                            renameSync(entry, backupDir);
+                            moved += 1;
+                        }
+                        catch {
+                            try {
+                                cpSync(entry, backupDir, { recursive: true });
+                                rmSync(entry, { recursive: true, force: true });
+                                moved += 1;
+                            }
+                            catch {
+                                failed += 1;
+                            }
+                        }
+                    }
+                    if (failed > 0)
+                        return { ok: false, detail: `purged ${moved}, failed ${failed}` };
+                    if (moved === 0)
+                        return { ok: true, detail: 'already-clean' };
+                    return { ok: true, detail: `moved ${moved} non-symlink dirs to backup` };
                 }
                 // [安装回退被挡] 移走非 symlink 目录（remove-fallback-blocker）：目标在
                 // profiles/node_modules 下（fallback 目录）且是真实目录（非链接）→ 移入 backupRoot
