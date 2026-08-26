@@ -1,9 +1,13 @@
 {
   "name": "@dsh-desktop/plugin-global-prompt",
-  "description": "Native DeepSeek Harness settings plugin for global and project AGENTS.md, identity/persona injection, and result notifications. MIT licensed; works in DSH Web and the dsh-desktop Electron shell.",
-  "version": "0.1.1",
+  "description": "DSH 设置插件：管理全局与各工作区 AGENTS.md、身份/人设注入、结果通知。Global and per-workspace AGENTS.md editor, identity/persona injection, and result notifications for DeepSeek Harness.",
+  "version": "0.1.2",
   "type": "module",
   "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sryimnoob123/dsh-global-prompt.git"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -34,6 +38,7 @@
     "lib/",
     "cordis.patch.yml",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "license": "MIT",

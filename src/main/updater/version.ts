@@ -53,16 +53,22 @@ export function extractReleaseNotes(
 
 /** 净化发布源 HTML：剥 script/iframe/object/embed 标签、事件属性、javascript: URL（M4 纵深防御）。
  *  embed 是自闭合元素（无结束标签），匹配到 `>` 为止；iframe/object 有闭合标签。
- *  另剥 <style>/<link>/<meta>/<base>（可携带外链/执行面）与 <math>（XML 命名空间变体）。 */
+ *  另剥 <style>/<link>/<meta>/<base>（可携带外链/执行面）与 <math>（XML 命名空间变体）。
+ *  2026-08-24 安全审查 P2 补洞：事件属性正则改为 `[a-zA-Z][\w-]*`（onLoad 混合大小写也能剥）；
+ *  未闭合 `<script` 开头也剥；xlink:href 加入 URL 拦截；javascript: 允许中间穿插空白/换行变体。 */
 export function sanitizeReleaseNotesHtml(html: string): string {
   return html
     // 配对标签：script/iframe/object/style/math
     .replace(/<(script|iframe|object|style|math)\b[\s\S]*?<\/\1\s*>/gi, '')
     // 自闭合 void 元素：embed/link/meta/base（无结束标签）
     .replace(/<(?:embed|link|meta|base)\b[^>]*>/gi, '')
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    // javascript:/vbscript:/data: URL（引号或无引号两种形态；整段替换，保证引号闭合）
-    .replace(/(href|src)\s*=\s*(["']?)\s*(?:javascript|vbscript|data)\s*:[^"'\s>]*\2?/gi, '$1="#"')
+    // 未闭合 script 开头（无结束标签形态，P2 补洞）
+    .replace(/<script\b[^>]*[\s\S]*?(?=<\/?[a-z]|$)/gi, '')
+    // 事件属性（P2 补洞：onLoad/onError 混合大小写也剥；事件名可含数字/连字符）
+    .replace(/\son[a-zA-Z][\w-]*\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // javascript:/vbscript:/data: URL（引号或无引号两种形态；整段替换，保证引号闭合；
+    // 协议名允许中间穿插空白/换行——防 java\nscript: 变体绕过；xlink:href 一并拦截）
+    .replace(/(?:href|src|xlink:href)\s*=\s*(["']?)\s*(?:j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t|vbscript|data)\s*:[^"'\s>]*\1?/gi, 'href="#"')
     .replace(/\s+style\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
 }
 

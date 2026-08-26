@@ -157,6 +157,7 @@
         chip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 2v3M14 2v3M10 19v3M14 19v3M2 10h3M2 14h3M19 10h3M19 14h3"/></svg>',
         download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/></svg>',
         bolt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H13Z"/></svg>',
+        lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
         sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2.2" fill="var(--card)"/><circle cx="15" cy="12" r="2.2" fill="var(--card)"/><circle cx="8" cy="18" r="2.2" fill="var(--card)"/></svg>',
       };
 
@@ -190,6 +191,11 @@
               icon: 'bolt', title: '服务启动失败',
               lede: '服务刚刚尝试启动，但没有成功。',
               steps: ['点「查看日志」了解具体原因', '处理完原因后点「重试」'],
+            },
+            'permission-denied': {
+              icon: 'lock', title: '数据目录无写权限',
+              lede: '应用无法在数据目录写入文件，服务无法启动。',
+              steps: ['重新安装到用户目录（安装时选择「仅为我安装」）', '或右键应用图标，选择「以管理员身份运行」'],
             },
             'config-broken': {
               icon: 'sliders', title: '配置文件损坏',
@@ -227,6 +233,11 @@
               icon: 'bolt', title: 'Service failed to start',
               lede: 'The service tried to start a moment ago, but did not succeed.',
               steps: ['Press "View logs" to see what went wrong', 'After fixing the cause, press "Retry"'],
+            },
+            'permission-denied': {
+              icon: 'lock', title: 'Data directory not writable',
+              lede: 'The app cannot write to the data directory, so the service cannot start.',
+              steps: ['Reinstall to the user directory (choose "Install for me only")', 'Or right-click the app icon and choose "Run as administrator"'],
             },
             'config-broken': {
               icon: 'sliders', title: 'Configuration file corrupted',

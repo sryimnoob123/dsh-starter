@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, Menu, nativeTheme, Notification, shell, Tray } from 'electron';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { accessSync, appendFileSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -10,6 +10,8 @@ import { scanHotMountLine } from './service/hotMount.js';
 import { decideRenderGone, RENDER_GONE_WINDOW_MS, STATUS_BREAKPOINT, type RenderGoneState } from './window/renderGone.js';
 import { decidePort } from './service/port.js';
 import { decideStartup } from './service/startup.js';
+import { checkDirWritable, isAdmin } from './service/writableCheck.js';
+import { autoFixStoreDrift, detectStoreDrift } from './service/storeDrift.js';
 import { buildNodeSpawnSpec, buildSpawnEnv, buildSpawnSpec, type SpawnSpec } from './service/spawn.js';
 import { ensureProfilePnpmWorkspaces } from './service/profileWorkspace.js';
 import { isNodeOk } from './service/nodeCheck.js';
@@ -32,12 +34,15 @@ import {
   type UpdateUiState,
 } from './updater/index.js';
 import { registerBridge, sendProgress, sendServiceStatus, type ShellOps } from './bridge/register.js';
+import { registerTrustedSender } from './bridge/senderGuard.js';
 import type { ShellStatus } from './bridge/contract.js';
 import { discoverModels, testConnection } from './onboarding/connection.js';
 import { applyDefaultPermission, saveConnectionToService } from './onboarding/dshConfig.js';
 import { buildNpmInstallArgs, DSH_NPM_REGISTRY, DSH_NPM_REGISTRY_FALLBACK, dshBinPath, dshEntryJsPath, findGlobalDsh, parseNpmFetchLine } from './install/dshPackage.js';
 import { ensureWinTerminalInspector } from './install/winInspectorPlugin.js';
 import { seedProfileFromBundled, finalizeSeedSettings } from './install/seedProfile.js';
+import { extractRuntimes } from './install/extractRuntimes.js';
+import { tryRestorePreservedDshHome, tryRestoreBackupDshHome } from './install/restorePreservedDshHome.js';
 import { BUNDLED_DSH_PLUGINS, ensureBundledDshPlugins, isolatedBundledNames } from './install/bundledDshPlugins.js';
 import { listPlugins, setPluginEnabled, setPluginRemoved } from './plugins/pluginManager.js';
 import { createRescueEngine, runDiagnosers, type RescueEvent } from './vendor-rescue/index.js';
@@ -114,6 +119,22 @@ function bundledPluginsSourceRoot(): string {
 // 本壳只加载本机 DSH 服务（127.0.0.1），contextIsolation + nodeIntegration:false 仍保留 renderer 隔离。
 app.commandLine.appendSwitch('no-sandbox');
 
+// [安全审查 P3 兜底] 全局导航护栏：所有 webContents（含未来新增的窗口）一律只放行
+// 壳本地页（file:// 指向 pages）与本机 DSH 服务（127.0.0.1）；其余导航/弹窗全部拦截。
+// 主窗口的局部 will-navigate 护栏更细（文件拖放、开发截图），全局护栏补「新窗口漏挂」的兜底。
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', (event, url) => {
+    if (isAllowedNavigationUrl(url)) return;
+    if (url.startsWith('file://')) return; // 壳本地页（loadFile 程序化加载不走 will-navigate，这里只放行页面内导航）
+    event.preventDefault();
+  });
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\/(127\.0\.0\.1|localhost)([:\/]|$)/.test(url)) return { action: 'deny' };
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url).catch(() => undefined);
+    return { action: 'deny' };
+  });
+});
+
 // 开发模式（未打包）：壳数据（配置/日志/自备 Node 运行时）落源码树 dev-userdata，
 // 与打包版 %APPDATA%/deepseek-harness-starter 完全隔离——测试不污染正式数据，改动全留在源码文件夹内。
 if (!app.isPackaged) app.setPath('userData', join(app.getAppPath(), 'dev-userdata'));
@@ -127,8 +148,6 @@ const INSTALL_PAGE = join(__dirname, 'pages', 'install-wizard.html');
 const ONBOARDING_PAGE = join(__dirname, 'pages', 'onboarding.html');
 const LOGS_PAGE = join(__dirname, 'pages', 'logs.html');
 const PROMPT_SETTINGS_PAGE = join(__dirname, 'pages', 'prompt-settings.html');
-const NOTIFICATIONS_PAGE = join(__dirname, 'pages', 'notifications.html');
-const USAGE_PAGE = join(__dirname, 'pages', 'usage.html');
 const PRELOAD = join(__dirname, 'bridge', 'preload.cjs');
 const ICON = join(__dirname, '..', '..', 'assets', 'icon.png');
 /** 白鲸（深色主题用白鲸、浅色用黑鲸；用户拍板） */
@@ -450,52 +469,12 @@ trayItems.register({
 });
 
 trayItems.register({
-  id: 'repair',
-  title: '修复',
-  order: 26,
-  click: ({ window }) => {
-    // [F2] 修复按钮：一键把诊断摘要 + 日志尾部 + 环境发给 DSH 新开会话，让 DSH 自修
-    void runRepairSession(window);
-  },
-});
-
-trayItems.register({
-  id: 'logs',
-  title: '查看日志',
-  order: 30,
-  click: ({ window }) => {
-    // [D21]：托盘"查看日志"= 壳内日志页（壳日志 + 服务日志），不是打开文件夹
-    void loadLogsPage(window);
-  },
-});
-
-trayItems.register({
   id: 'backup',
   title: '备份数据',
   order: 28,
   click: ({ window }) => {
     // [整合包调研] 数据备份：一键把 dsh-home 配置层（含会话）备份到用户选择的位置
     void runBackup(window);
-  },
-});
-
-trayItems.register({
-  id: 'notifications',
-  title: '通知',
-  order: 32,
-  click: ({ window }) => {
-    // [D31] 通知历史中心：错过弹窗也能回看，可一键清空
-    void loadNotificationsPage(window);
-  },
-});
-
-trayItems.register({
-  id: 'usage',
-  title: '用量统计',
-  order: 34,
-  click: ({ window }) => {
-    // 用量统计页（用户要求：ZCode 式，风格与现有 Codex 皮一致）
-    void loadUsagePage(window);
   },
 });
 
@@ -936,6 +915,100 @@ async function startShellInner(win: BrowserWindow): Promise<void> {
   const store = getStore();
   const config = store.load();
 
+  // [2026-08-25 修复] dsh-home 可写性检测：数据目录 = 安装目录，装进 Program Files 后
+  // 普通用户无写权限，DSH 服务 mkdir 抛 EPERM 起不来（真实用户 v0.4.8 踩到）。
+  // 试写探针（不用 accessSync——Windows 上不检查 ACL、管理员下恒通过）。
+  // [2026-08-25 修复2] 首启时 dsh-home 可能还不存在（DSH 服务启动后才创建），探针直接
+  // 试写会 ENOENT 误报"不可写"。先 mkdirSync 创建——能建出来 = 可写；建不出来抛 EPERM
+  // 才是真不可写（VM 实测：per-user 安装首启误弹"数据目录不可写"，根因即此）。
+  const dshHomeForWrite = desktopDshHome(shellInstallDir());
+  try {
+    mkdirSync(dshHomeForWrite, { recursive: true });
+  } catch (error) {
+    writeLog('shell', `dsh-home create failed: ${String(error)}`);
+    emitServiceStatus(win, 'failed', '安装目录无写权限，服务无法启动');
+    const admin = isAdmin();
+    if (admin) {
+      await dialog.showMessageBox(win, {
+        type: 'error',
+        title: '数据目录不可写',
+        message: 'DeepSeek Harness 无法在数据目录创建文件夹。',
+        detail: `dsh-home（${dshHomeForWrite}）创建失败，请检查目录权限或磁盘状态。\n\n原因：${String(error)}`,
+        buttons: ['知道了'],
+      });
+    } else {
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        title: '数据目录不可写',
+        message: 'DeepSeek Harness 无法在数据目录创建文件夹，服务将无法启动。',
+        detail: `dsh-home（${dshHomeForWrite}）位于受保护的系统目录（如 Program Files），普通用户无法写入。\n\n建议重新安装到用户目录（安装时选择「仅为我安装」），或右键本程序选择「以管理员身份运行」。\n\n原因：${String(error)}`,
+        buttons: ['重新安装到用户目录', '以管理员身份运行', '退出'],
+        defaultId: 0,
+        cancelId: 2,
+      });
+      if (response === 0) {
+        await dialog.showMessageBox(win, {
+          type: 'info',
+          title: '重新安装到用户目录',
+          message: '请卸载后重新安装，安装时选择「仅为我安装」（默认目录为 %LOCALAPPDATA%\\Programs）。',
+          detail: '重装不会丢失数据（更新/重装会自动备份 dsh-home）。',
+        });
+        return;
+      }
+      if (response === 1) {
+        shell.openPath(shellInstallDir());
+        return;
+      }
+      app.exit(1);
+      return;
+    }
+    return;
+  }
+  const writable = checkDirWritable(dshHomeForWrite);
+  if (!writable.ok) {
+    writeLog('shell', `dsh-home not writable: ${writable.detail}`);
+    emitServiceStatus(win, 'failed', '安装目录无写权限，服务无法启动');
+    const admin = isAdmin();
+    if (admin) {
+      // 管理员都写不了：目录 ACL 异常或磁盘只读，直接报错
+      await dialog.showMessageBox(win, {
+        type: 'error',
+        title: '数据目录不可写',
+        message: 'DeepSeek Harness 无法在数据目录写入文件。',
+        detail: `dsh-home（${dshHomeForWrite}）当前身份也无法写入，请检查目录权限或磁盘状态。\n\n原因：${writable.detail}`,
+        buttons: ['知道了'],
+      });
+    } else {
+      // 典型「装进 Program Files」场景：引导重装到用户目录（首选）或提权运行
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        title: '数据目录不可写',
+        message: 'DeepSeek Harness 无法在数据目录写入文件，服务将无法启动。',
+        detail: `dsh-home（${dshHomeForWrite}）位于受保护的系统目录（如 Program Files），普通用户无法写入。\n\n建议重新安装到用户目录（安装时选择「仅为我安装」），或右键本程序选择「以管理员身份运行」。\n\n原因：${writable.detail}`,
+        buttons: ['重新安装到用户目录', '以管理员身份运行', '退出'],
+        defaultId: 0,
+        cancelId: 2,
+      });
+      if (response === 0) {
+        // 打开安装器所在位置提示（用户手动重装）
+        await dialog.showMessageBox(win, {
+          type: 'info',
+          title: '重新安装到用户目录',
+          message: '请卸载后重新安装，安装时选择「仅为我安装」（默认目录为 %LOCALAPPDATA%\\Programs）。',
+          detail: '重装不会丢失数据（更新/重装会自动备份 dsh-home）。',
+        });
+        return;
+      }
+      if (response === 1) {
+        shell.openPath(shellInstallDir());
+        return;
+      }
+      app.exit(1);
+      return;
+    }
+    return;
+  }
+
   const nodeOk = isNodeOk(process.versions.node);
   // [2026-08-23 调研修正] 生态共识：压缩载荷只在安装器里（NSIS 7z 解压带进度条），
   // 首启零解压。DSH 运行时与种子由安装器直接落到 <安装目录>/dsh 与 dsh-home-seed，
@@ -951,6 +1024,16 @@ async function startShellInner(win: BrowserWindow): Promise<void> {
     dshDir = defaultDshDir;
   }
   const installedBin = dshBinPath(dshDir);
+  // [2026-08-25 tgz 归档] 全新安装后 dsh 运行时尚未解压（安装器只带 2 个 tgz），
+  // 必须先解压再检测 dsh——否则 dshDetected=false 走引导弹窗卡死（VM 实测 240s 无响应）。
+  // 幂等：完成标记 + bin.js 就绪则跳过（零开销）；异步执行不阻塞窗口。
+  emitServiceStatus(win, 'starting', '首次启动正在准备插件（约 1-2 分钟）…');
+  try {
+    const extractResult = await extractRuntimes({ installDir: shellInstallDir() });
+    if (extractResult.extracted) writeLog('shell', `first-run archives extracted: ${extractResult.reason}`);
+  } catch (error) {
+    writeLog('shell', `first-run archives extract FAILED: ${String(error)}`);
+  }
   // 检测本机已装 dsh：安装目录的 dsh（npm 安装版/打包内置版）/ PATH 里的全局 dsh。
   // 注意：不能看 process.cwd()/package.json——壳的 cwd 继承自启动它的进程，与 DSH 是否已装无关，会误判。
   const globalDsh = findGlobalDsh(process.platform, process.env.PATH ?? '', existsSync);
@@ -1115,8 +1198,59 @@ async function startShellInner(win: BrowserWindow): Promise<void> {
   // （写 package.json），播种检测到 profile 存在就跳过——顺序反了首启拿不到 106 插件种子。
   // settings 不在本阶段补：DSH 启动会写自己的默认 settings 覆盖（2026-08-23 实测），
   // 阶段2（service ready 后）由 finalizeSeedSettings 补。
-  const firstRunSeed = seedProfileFromBundled({ installDir: shellInstallDir() });
+  // [P0 数据丢失兜底] 更新可能把 dsh-home（含用户 skill）移进 %TEMP%\dsh-home-preserve；
+  // 先尝试恢复，再走种子播种（避免种子覆盖掉找回的数据）。
+  // 双通道：NSIS preserve（宏生效时）→ 壳侧备份（宏失效时，2026-08-25 止血补丁）。
+  const dshHomeForRestore = desktopDshHome(shellInstallDir());
+  const preserveRestore = tryRestorePreservedDshHome(dshHomeForRestore);
+  if (preserveRestore.restored) {
+    writeLog('shell', `user data restored from preserve: ${preserveRestore.detail}`);
+  } else {
+    const backupRestore = tryRestoreBackupDshHome(dshHomeForRestore);
+    if (backupRestore.restored) {
+      writeLog('shell', `user data restored from backup: ${backupRestore.detail}`);
+    }
+  }
+  // [2026-08-25 修复] 首启播种改异步（fs.promises.cp），主进程不被阻塞、窗口保持响应；
+  // 播种期间给用户进度提示，避免"无响应"误判（真实用户"win11 打不开"根因）。
+  // 解压（extractRuntimes）已前移到 startShellInner 开头 dsh 检测之前——全新安装时
+  // 必须先解压出 dsh 运行时，dshDetected 才能判 true（否则走引导弹窗卡死）。
+  const firstRunSeed = await seedProfileFromBundled({ installDir: shellInstallDir() });
   if (firstRunSeed.seeded) writeLog('shell', `first-run seed applied: ${firstRunSeed.reason}`);
+  // [2026-08-26 修复] pnpm store 漂移检测必须放在播种（seedProfileFromBundled）**之后**：
+  // 全新安装时播种才把 web profile（含 .modules.yaml，带打包机盘符 storeDir/virtualStoreDir）
+  // 落盘——在此之前检测 profileDir 不存在 → 判"不漂移" → autoFix 不触发 → 带 E:\ 路径的
+  // 种子直接进 DSH → 两个插件市场（dshmarket/webui-market）跑 pnpm 全崩（2026-08-26 实测）。
+  // autoFix 无条件执行（不依赖盘符漂移判断——storeDir 是用户目录路径不随安装盘变化，且目标机
+  // pnpm 默认 store 由用户全局配置决定；autoFix 内部比对 storeDir ≠ 目标默认才改写 + 删
+  // virtualStoreDir）。弹窗只在 autoFix 无法安全修复（有异盘链接）且用户未点过"不再提示"时出。
+  {
+    const profileDir = join(desktopDshHome(shellInstallDir()), 'profiles', 'web');
+    const autoFixed = autoFixStoreDrift(profileDir);
+    if (autoFixed) {
+      writeLog('shell', `pnpm store drift auto-fixed (storeDir rewritten + virtualStoreDir removed)`);
+    } else {
+      const drift = detectStoreDrift(profileDir);
+      if (drift.drifted && !config.storeDriftDismissed) {
+        writeLog('shell', `pnpm store drift detected: old=${drift.oldStore} currentDrive=${drift.currentDrive}`);
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'warning',
+          title: '检测到应用目录已迁移',
+          message: '插件安装可能无法使用（pnpm store 路径已变化）。',
+          detail: `检测到应用从 ${drift.oldDrive}: 盘迁移到了 ${drift.currentDrive}: 盘，插件依赖的 pnpm store 路径已变化，安装插件会报错。\n\n修复方法：在设置 → 插件市场里重装插件，或手动在 profile 目录执行 \`pnpm install --force\` 重建依赖。`,
+          buttons: ['知道了', '不再提示'],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (response === 1) {
+          const storeDrift = getStore();
+          const configDrift = storeDrift.load();
+          configDrift.storeDriftDismissed = true;
+          storeDrift.save(configDrift);
+        }
+      }
+    }
+  }
   // Plugins must be synchronized before DSH boots; its client plugin table is read only at startup.
   try {
     ensureBundledDshPlugins({
@@ -1129,7 +1263,9 @@ async function startShellInner(win: BrowserWindow): Promise<void> {
     writeLog('shell', `bundled DSH plugin pre-sync failed: ${String(error)}`);
   }
   const usingInstalled =
-    process.env.DSH_COMMAND === undefined && existsSync(installedBin);
+    // [安全审查 P1] DSH_COMMAND 是开发调试注入面（可被环境变量指向任意命令 + shell:true 放大）：
+    // 打包版一律忽略，只认安装目录/内置 dsh（process.env.DSH_COMMAND 仅开发模式生效）
+    (process.env.DSH_COMMAND === undefined || !app.isPackaged) && existsSync(installedBin);
   let spec: SpawnSpec;
   if (usingInstalled) {
     // npm 安装版（快启动）：自备/自下载 Node 直跑编译好的 DSH CLI（不依赖系统 node/npm）
@@ -1331,6 +1467,16 @@ async function startShellInner(win: BrowserWindow): Promise<void> {
     // （皮肤/主题/权限/模型引用/插件配置；API key 用户自配）→ 删 dsh-home-seed 残留。
     const seedFinal = finalizeSeedSettings({ installDir: shellInstallDir() });
     if (seedFinal.applied) writeLog('shell', `first-run settings seeded: ${seedFinal.reason}`);
+    // [2026-08-26 瘦身] 播种完成后删 dsh-archives（2 个 tgz + 校验文件，~124M）：
+    // runtime 已解压到 dsh/node_modules、seed 已播种，归档不再需要。删除后下次启动
+    // extractRuntimes 走 no-archives 分支（幂等标记缺失但归档也缺失 → 静默跳过，不重解）。
+    // 必须放在 finalizeSeedSettings 之后（seed 播种完成才删），且只删归档不碰 dsh-home。
+    try {
+      rmSync(join(shellInstallDir(), 'dsh-archives'), { recursive: true, force: true });
+      writeLog('shell', 'dsh-archives removed after seeding (slim)');
+    } catch (error) {
+      writeLog('shell', `dsh-archives cleanup failed: ${String(error)}`);
+    }
     try {
       ensureBundledDshPlugins({
         dshHome: desktopDshHome(shellInstallDir()),
@@ -1517,6 +1663,9 @@ function createWindow(): BrowserWindow {
     },
   });
   mainWindow = win;
+  // [IPC sender 校验] 注册主窗口为可信 sender（安全审查 P0-2）；窗口关闭时注销
+  const unregisterSender = registerTrustedSender(win.webContents.id);
+  win.on('closed', () => unregisterSender());
   // [FR-1] 窗口位置/尺寸记忆：启动套用上次状态，移动/缩放/最大化防抖落盘
   applySavedBounds(win);
   watchBounds(win);
@@ -1535,16 +1684,17 @@ function createWindow(): BrowserWindow {
   win.webContents.on('will-navigate', (event, url) => {
     writeLog('shell', `will-navigate: ${url}`);
     if (isAllowedNavigationUrl(url)) return;
-    // 开发调试（DSH_DEV_ALLOW_FILE=1，默认关闭）：壳本地页之间互跳放行，
-    // 供自跑验收逐页截图（http→file 仍被 Chromium 拦，由下方主进程代载）
+    // 开发调试（DSH_DEV_ALLOW_FILE=1，默认关闭；打包版强制忽略——安全审查 P1）：
+    // 壳本地页之间互跳放行，供自跑验收逐页截图（http→file 仍被 Chromium 拦，由下方主进程代载）
+    const devAllowFile = !app.isPackaged && process.env.DSH_DEV_ALLOW_FILE === '1';
     if (
-      process.env.DSH_DEV_ALLOW_FILE === '1' &&
+      devAllowFile &&
       url.startsWith('file://') &&
       win.webContents.getURL().startsWith('file://')
     ) {
       return;
     }
-    if (process.env.DSH_DEV_ALLOW_FILE === '1' && url.startsWith('file://')) {
+    if (devAllowFile && url.startsWith('file://')) {
       event.preventDefault();
       try {
         const target = new URL(url);
@@ -1714,17 +1864,7 @@ function openInAppSettings(win: BrowserWindow): void {
     .catch(() => void loadPromptSettings(win));
 }
 
-/** 通知历史页（[D31]：回看/清空） */
-function loadNotificationsPage(win: BrowserWindow): Promise<void> {
-  return win.loadFile(NOTIFICATIONS_PAGE, { query: pageQuery() }).catch(() => undefined);
-}
-
-/** 用量统计页（ZCode 式；数据 = session.history 的 host 投影） */
-function loadUsagePage(win: BrowserWindow): Promise<void> {
-  return win.loadFile(USAGE_PAGE, { query: pageQuery() }).catch(() => undefined);
-}
-
-/** 返回对话主界面（设置/通知/日志页"返回对话"；未完成首启向导时回向导） */
+/** 返回对话主界面（设置/日志页"返回对话"；未完成首启向导时回向导） */
 function loadMain(win: BrowserWindow): Promise<void> {
   writeLog('shell', 'loadMain called');
   const config = getStore().load();
@@ -1916,9 +2056,9 @@ const shellOps: ShellOps = {
   },
   openPromptSettings: () => {
     // [FR-21] 标题栏齿轮：打开 DSH 应用内设置（功能设置与 DSH 设置放一起）。
-    // 开发调试（DSH_DEV_ALLOW_FILE=1）：直接加载独立设置页，供自跑验收截图。
+    // 开发调试（DSH_DEV_ALLOW_FILE=1，打包版强制忽略——安全审查 P1）：直接加载独立设置页。
     const win = mainWindow ?? createWindow();
-    if (process.env.DSH_DEV_ALLOW_FILE === '1') {
+    if (!app.isPackaged && process.env.DSH_DEV_ALLOW_FILE === '1') {
       void loadPromptSettings(win);
       return;
     }
@@ -2213,6 +2353,13 @@ const shellOps: ShellOps = {
   },
   filePathOpen: async (path) => {
     // 左键直接打开：由壳用 shell.openPath（ShellExecute 源=前台壳进程），外部窗口能正常置顶
+    // [安全审查 P1-2 纵深防御] 拒绝可执行/脚本扩展名——防「打开 .lnk/.exe 快捷方式 → 执行任意程序」向量
+    // （收窄到 Windows 上真正的执行向量；.js/.jar/.sh 打开通常是编辑器/阅读器，不拦）
+    const EXEC_EXT = /\.(exe|com|bat|cmd|ps1|vbs|lnk|msi|scr|hta|reg|pif)$/i;
+    if (EXEC_EXT.test(path)) {
+      writeLog('shell', `openPath blocked: executable extension (${path})`);
+      return;
+    }
     const win = mainWindow;
     const cwd = win && !win.isDestroyed() ? await resolveCurrentSessionCwd(win) : undefined;
     const resolved = resolveFilePath(cwd, path);

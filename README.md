@@ -40,7 +40,7 @@ DeepSeek Harness 的桌面客户端。一个 Electron 壳，把官方 Web 界面
 
 | 文件 | 说明 | 大小 |
 | --- | --- | --- |
-| [deepseek-harness-starter-Setup-0.4.3.exe](https://github.com/sryimnoob123/dsh-starter/releases) | 安装版（内置 DSH + 106 插件，离线） | ~148 MB |
+| [deepseek-harness-starter-Setup-0.5.0.exe](https://github.com/sryimnoob123/dsh-starter/releases) | 安装版（内置 DSH + 106 插件，离线） | ~205 MB |
 
 ### 功能一览
 
@@ -70,13 +70,87 @@ DeepSeek Harness 的桌面客户端。一个 Electron 壳，把官方 Web 界面
 
 三样同目录（exe + dsh + dsh-home），卸载即清。
 
-**数据保护**：从 v0.4.8 起，更新时自动备份 `dsh-home`（会话/技能/配置/凭据）到临时目录，更新后自动恢复——即使旧版本卸载器删掉安装目录，数据也安全。
-
-**手动备份（可选）**：找到安装目录（桌面快捷方式 → 右键 → 打开文件所在位置），把整个 `dsh-home` 文件夹复制到别处（U 盘/桌面/网盘）即可。更新后数据丢失时，从 `%TEMP%\dsh-home-backup` 里找回（按 Win+R 输入 `%TEMP%` 回车，找 `dsh-home-backup` 文件夹）。
+**数据保护**：从 v0.4.8 起，更新时自动备份 `dsh-home`（会话/技能/配置/凭据）到临时目录，更新后自动恢复——即使旧版本卸载器删掉安装目录，数据也安全。手动备份/恢复方法见 [数据备份与恢复指南（小白版）](docs/数据备份与恢复指南-小白版.md)。
 
 ### 更新日志
 
-见 [CHANGELOG.md](CHANGELOG.md)。
+#### v0.5.0（2026-08-27）
+
+v0.5.0 主要解决插件市场开箱即用问题，并更新内置插件、精简托盘菜单。
+
+**插件市场修复**
+
+- 修复两个插件市场（dshmarket、webui-market）装不了插件的问题，现在开箱即用。
+- 启动时自动按电脑实际盘符修正 store 路径并清理打包机残留记录，修正前自动备份，手动配置过的 store 路径不会被覆盖。
+
+**界面修复**
+
+- 修复右上角按钮（最小化/最大化/关闭）点了没反应的问题。
+
+**内置插件更新**
+
+- 增强侧栏（dsh-better-sidebar）0.15.2 → 0.16.1
+- 上下文管理（dsh-context）0.25.3 → 0.33.1
+- 模型透镜（@liustack/modlens）3.24.0 → 3.25.0
+- 插件市场（dshmarket）1.18.0 → 1.31.1
+
+**托盘菜单精简**
+
+- 移除「查看日志」「修复」「用量统计」「通知」四项，保留打开窗口、重启服务、压缩上下文、备份数据、设置、检查更新、安装更新、帮助、退出。日志和修复仍可通过快捷键（Ctrl+Shift+F / Ctrl+Shift+L）使用。
+
+**其他优化**
+
+- 修复侧栏自定义项丢失，升级后自动补回。
+- 安装提速：种子播种改为同盘瞬时移动，首启更快。
+- 安装包瘦身：只保留中英文语言包，安装包约 205 MB。
+- 安装包不再携带打包机的绝对路径信息，隐私更干净。
+
+#### v0.4.8（2026-08-25）
+
+**紧急修复（数据保留，跨版本更新兜底）**
+
+- 修复从旧版本（0.4.3 及更早）直接更新时数据仍可能丢失的问题。旧版本卸载器会连整个安装目录一起删，而新版本的保留逻辑在旧卸载器执行时还来不及运行。
+- 本版本在安装器初始化阶段（卸载旧版本之前）主动备份用户数据（会话记录、API 配置、插件设置、技能文件 dsh-home/skills）到临时目录，更新完成后自动恢复——即使旧卸载器删掉安装目录，数据也安全。
+- 额外增加壳侧更新前备份：点击「现在安装」时先把用户数据备份到临时目录，双保险。
+- 启动时自动从备份恢复：应用启动检测到用户数据丢失时，自动从临时备份找回，无需手动操作。
+
+**其他修复**
+
+- 默认配置回滚到官方标准：全新安装不再带自定义模型路由（ollama），避免无凭据报错。
+- 插件自救扩展：新增浏览器端插件加载失败（failed to load）的诊断规则，覆盖 dsh-session-log-export 等插件。
+
+#### v0.4.3（2026-08-24）
+
+**插件自救**
+
+- 新增崩溃自愈引擎：启动/运行崩溃自动诊断 → 自动停用问题插件（移走不删除，可一键恢复）→ 递归重启。
+- 新增自动修复通道：patch 双挂（重复挂载条目）、坏 YAML（自动回退写前备份 + 净化）、安装回退目录被真实目录挡住（移走挡路目录）。
+- 新增渲染进程崩溃自愈：黑屏自动重载（2 分钟内 ≤3 次），安全软件/调试器打断特征走友好提示不刷屏。
+- 新增热挂载失败检测：服务存活但单插件挂不上 → 自动停用 → 重启服务 → 系统通知。
+- 新增诊断报告：每次事件生成三段式报告（问题/状态/处置，已脱敏），复制剪贴板 + 落盘环形保留。
+
+**UI 判定区域修复**
+
+- 修复界面判定区域（可点击/可拖拽热区）的误判问题，窗口交互更跟手。
+
+**更新机制改造**
+
+- 更新改为「点击才下载、确认才安装」，不再自动下载占用带宽。
+- 新增更新进度窗（发现/下载中/已下载/错误全状态可见），右上角按钮四态（无/可下载/下载中/待安装）结构化同步。
+- 修复下载完成通知重复弹出、手动检查无即时反馈、进度窗卡在检查中等问题。
+
+**内置插件加入**
+
+- 新增壳内置插件：插件市场（dshmarket）、启动守卫（dsh-boot-guard）、撤销保存点（dsh-undo-savepoint）、诊断工具（@moonquake2004/dsh-doctor），随壳打包、零 npm 依赖。
+- 预装随包插件：用量统计（dsh-usage-stats）、增强侧栏（dsh-better-sidebar）、上下文管理（dsh-context）、插件查找（dsh-find-plugin）、模型透镜（@liustack/modlens）、市场插件（@sanqi-normal/dsh-webui-market-plugin）。
+
+**DSH 内核更新**
+
+- 内置 DeepSeek Harness 内核升级至 0.1.1-rc.2，随包离线分发。
+
+**全局提示词功能插件化**
+
+- 全局/项目级 AGENTS.md、persona/身份注入、运行时上下文开关整体迁入独立插件 `@dsh-desktop/plugin-global-prompt`，随壳内置，与独立发布版互不干扰。
 
 ### 开发
 
@@ -165,7 +239,38 @@ A thin [Electron](https://www.electronjs.org/) shell for [DeepSeek Harness](http
 
 ### Changelog
 
-See [CHANGELOG.md](CHANGELOG.md).
+#### v0.4.3 (2026-08-24)
+
+**Self-healing**
+
+- Crash diagnosis engine: auto-diagnose boot/runtime crashes → auto-disable the problem plugin (moved, not deleted, one-click restore) → recursive restart.
+- Auto-repair channels: duplicate plugin entries, bad YAML (backup restore + sanitize), blocked install-fallback dirs (moved aside).
+- Renderer-crash self-heal: auto-reload (≤3 per 2 min); security-software/debugger breakpoints get a friendly hint instead of reload loops.
+- Hot-mount failure detection: service alive but a plugin fails to mount → auto-disable → restart service → notify.
+- Diagnostic report per incident (problem/state/action, redacted) — clipboard + ring-buffered disk.
+
+**UI hit-area fixes**
+
+- Fixed clickable/draggable hot-area misjudgments; window interaction feels more responsive.
+
+**Update mechanism rework**
+
+- Updates changed to "download on click, install on confirm" — no silent bandwidth use.
+- Update progress window (discovered/downloading/downloaded/error) + top-right button four-state sync.
+- Fixed repeated download-finished notifications, no feedback on manual check, and the progress window stuck on "checking".
+
+**Bundled plugins added**
+
+- New shell-bundled plugins: plugin market (`dshmarket`), boot guard, undo-savepoint, doctor — zero npm deps.
+- Pre-installed seed plugins: usage stats, better sidebar, context manager, plugin finder, modlens, webui market plugin.
+
+**DSH core update**
+
+- Bundled DeepSeek Harness core updated to 0.1.1-rc.2 (ships offline in the installer).
+
+**Global prompt as plugin**
+
+- Global/project AGENTS.md, persona/identity injection, runtime-context toggle moved into the standalone plugin `@dsh-desktop/plugin-global-prompt`, bundled with the shell.
 
 ### Development
 

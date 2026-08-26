@@ -27,6 +27,8 @@ export interface ShellConfig {
   permissionDefaultApplied?: boolean;
   /** 用户对某更新版本点过"稍后"（[稍后持久化]）：同版本不再自动弹窗，新版本恢复 */
   dismissedUpdateVersion?: string;
+  /** 用户对 store 漂移提示点过"不再提示"（2026-08-25：目录迁移后 pnpm store 漂移检测） */
+  storeDriftDismissed?: boolean;
 }
 
 const DEFAULT_NOTIFICATIONS: { result: boolean } = { result: true };

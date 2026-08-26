@@ -1,7 +1,7 @@
 // 种子净化：把验证过的插件快照（_tmp/backups/snapshots/seed-20260823-preload）净化成
 // 安装包内种子（build/seed-dsh-home）。只保留 web profile 运行所需，剔除一切隐私。
 // 运行：node scripts/prepare-seed.mjs
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -90,11 +90,19 @@ console.log(`净化完成: ${copied} 个文件 + 官方包补齐 → ${OUT}`);
 // settings.yaml 只含配置（皮肤/主题/权限/模型引用名 apiKeyEnv），无真实凭据
 // （凭据在 .credentials.yaml，不打包）。安装版首启播种时 settings 一并拷贝，
 // 用户只需重新配 API key，插件配置（皮肤/侧边栏/权限/模型清单）开箱即得。
+// [2026-08-24 安全审查 P2] settings.yaml 纳入反证扫描：任何真实凭据形态（sk-…/
+// Bearer/KEY=…/x-api-key）进 settings 即拒绝打包（防未来往 settings 塞 key 时漏网）。
 const DEV_DHOME = join(root, 'dsh-home');
 const devSettings = join(DEV_DHOME, 'settings.yaml');
 if (existsSync(devSettings)) {
+  const raw = readFileSync(devSettings, 'utf8');
+  const keyHit = /\bsk-[A-Za-z0-9_-]{20,}\b|\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b|(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)=[A-Za-z0-9._~+/=-]{16,}\b|\bx-api-key\s*[:=]/i.test(raw);
+  if (keyHit) {
+    console.error('[红线] settings.yaml 检出真实凭据形态，拒绝打包——请先从开发配置移除敏感字段');
+    process.exit(1);
+  }
   cpSync(devSettings, join(OUT, 'settings.yaml'));
-  console.log('  [补] settings.yaml（插件/UI/模型配置，无凭据）');
+  console.log('  [补] settings.yaml（插件/UI/模型配置，无凭据，反证通过）');
 } else {
   console.warn('  [注] 开发版 dsh-home/settings.yaml 不存在，种子不带设置');
 }

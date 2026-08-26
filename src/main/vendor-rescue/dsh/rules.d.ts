@@ -17,6 +17,7 @@ export declare const dshDuplicateEntryRule: Diagnoser;
  *  从 `loader entry <id> (<包名>):` 提取包名；包名不合法（stderr 可注入/路径穿越）或不在已知清单
  *  → 无 suspect，不处置（隔离一个不存在的包是空操作，白烧预算）。 */
 export declare const dshLoaderEntryFailedRule: Diagnoser;
+export declare const dshClientBundleFailedRule: Diagnoser;
 export declare const dshBadPatchYamlRule: Diagnoser;
 export declare const dshFallbackBlockerRule: Diagnoser;
 export declare const dshDiagnosers: readonly Diagnoser[];

@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import type { BrowserWindow } from 'electron';
+import { checkIpcCall } from './senderGuard.js';
 import {
   BRIDGE_API,
   parseConnectionConfig,
@@ -90,50 +91,66 @@ export interface ShellOps {
   troubleshoot(): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
-export function registerBridge(ops: ShellOps): void {
-  ipcMain.handle(BRIDGE_API.retry, () => ops.retry());
-  ipcMain.handle(BRIDGE_API.quit, () => ops.quit());
-  ipcMain.handle(BRIDGE_API.openLogs, () => ops.openLogs());
+/**
+ * 给 ipcMain.handle 处理器包一层 sender 校验（安全审查 P0-2）：
+ * 校验调用方是壳自己注册的窗口 + 方法按页面来源分级；被拒时抛错（调用方看到 reject），
+ * 并记录原因供排错。handler 拿到的是 (event, raw) 签名，包装后保持原签名。
+ */
+function guarded(
+  method: string,
+  handler: (event: Electron.IpcMainInvokeEvent, raw: unknown) => unknown,
+) {
+  return (event: Electron.IpcMainInvokeEvent, raw: unknown): unknown => {
+    const denied = checkIpcCall(method, event.sender);
+    if (denied) throw new Error(`ipc denied: ${denied}`);
+    return handler(event, raw);
+  };
+}
 
-  ipcMain.handle(BRIDGE_API.readLog, (_event, raw: unknown) => {
+export function registerBridge(ops: ShellOps): void {
+  ipcMain.handle(BRIDGE_API.retry, guarded('retry', () => ops.retry()));
+  ipcMain.handle(BRIDGE_API.quit, guarded('quit', () => ops.quit()));
+  ipcMain.handle(BRIDGE_API.openLogs, guarded('openLogs', () => ops.openLogs()));
+
+  ipcMain.handle(BRIDGE_API.readLog, guarded('readLog', (_event, raw: unknown) => {
     const kind = parseLogKind(raw);
     if (!kind) throw new Error(`readLog: 非法参数 ${String(raw)}`);
     return ops.readLog(kind);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.goInstall, () => ops.goInstall());
+  ipcMain.handle(BRIDGE_API.goInstall, guarded('goInstall', () => ops.goInstall()));
 
-  ipcMain.handle(BRIDGE_API.openPromptSettings, () => ops.openPromptSettings());
+  ipcMain.handle(BRIDGE_API.openPromptSettings, guarded('openPromptSettings', () => ops.openPromptSettings()));
 
-  ipcMain.handle(BRIDGE_API.openMain, () => ops.openMain());
+  ipcMain.handle(BRIDGE_API.openMain, guarded('openMain', () => ops.openMain()));
 
-  ipcMain.handle(BRIDGE_API.checkForUpdates, () => ops.checkForUpdates());
+  ipcMain.handle(BRIDGE_API.checkForUpdates, guarded('checkForUpdates', () => ops.checkForUpdates()));
 
-  ipcMain.handle(BRIDGE_API.choosePort, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.choosePort, guarded('choosePort', (_event, raw: unknown) => {
     const port = parsePort(raw);
     if (port === null) throw new Error('choosePort: 端口非法');
     return ops.choosePort(port);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.startInstall, () => ops.startInstall());
+  ipcMain.handle(BRIDGE_API.startInstall, guarded('startInstall', () => ops.startInstall()));
 
-  ipcMain.handle(BRIDGE_API.pickDir, () => ops.pickDir());
+  ipcMain.handle(BRIDGE_API.pickDir, guarded('pickDir', () => ops.pickDir()));
 
-  ipcMain.handle(BRIDGE_API.selectDshDir, () => ops.selectDshDir());
+  ipcMain.handle(BRIDGE_API.selectDshDir, guarded('selectDshDir', () => ops.selectDshDir()));
 
-  ipcMain.handle(BRIDGE_API.testConnection, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.testConnection, guarded('testConnection', (_event, raw: unknown) => {
     const config = parseConnectionConfig(raw);
     if (!config) return { ok: false, message: '配置不完整：请填写 API 地址、API 密钥与模型名。' };
     return ops.testConnection(config);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.saveConnection, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.saveConnection, guarded('saveConnection', (_event, raw: unknown) => {
     const config = parseConnectionConfig(raw);
     if (!config) return { ok: false, message: '配置不完整：请填写 API 地址、API 密钥与模型名。' };
     return ops.saveConnection(config);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.discoverModels, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.discoverModels, guarded('discoverModels', (_event, raw: unknown) => {
     const parsed = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
     const baseUrl = typeof parsed?.baseUrl === 'string' ? parsed.baseUrl.trim() : '';
     const apiKey = typeof parsed?.apiKey === 'string' ? parsed.apiKey.trim() : '';
@@ -141,11 +158,11 @@ export function registerBridge(ops: ShellOps): void {
       return { ok: false, models: [], message: '请先填写 API 地址与 API 密钥。' };
     }
     return ops.discoverModels({ baseUrl, apiKey });
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.getPromptSettings, () => ops.getPromptSettings());
+  ipcMain.handle(BRIDGE_API.getPromptSettings, guarded('getPromptSettings', () => ops.getPromptSettings()));
 
-  ipcMain.handle(BRIDGE_API.savePromptSettings, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.savePromptSettings, guarded('savePromptSettings', (_event, raw: unknown) => {
     const input = parsePromptSettingsInput(raw);
     if (!input) {
       return {
@@ -155,55 +172,55 @@ export function registerBridge(ops: ShellOps): void {
       } satisfies SavePromptSettingsResult;
     }
     return ops.savePromptSettings(input);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.readNotifications, () => ops.readNotifications());
+  ipcMain.handle(BRIDGE_API.readNotifications, guarded('readNotifications', () => ops.readNotifications()));
 
-  ipcMain.handle(BRIDGE_API.clearNotifications, () => ops.clearNotifications());
+  ipcMain.handle(BRIDGE_API.clearNotifications, guarded('clearNotifications', () => ops.clearNotifications()));
 
-  ipcMain.handle(BRIDGE_API.listProjectInstructions, () => ops.listProjectInstructions());
+  ipcMain.handle(BRIDGE_API.listProjectInstructions, guarded('listProjectInstructions', () => ops.listProjectInstructions()));
 
-  ipcMain.handle(BRIDGE_API.saveProjectInstruction, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.saveProjectInstruction, guarded('saveProjectInstruction', (_event, raw: unknown) => {
     const input = parseProjectInstructionInput(raw);
     if (!input) return { ok: false, message: '保存失败：内容非法或超出长度上限（≤ 1MB）。' };
     return ops.saveProjectInstruction(input);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.getSessionUsage, () => ops.getSessionUsage());
+  ipcMain.handle(BRIDGE_API.getSessionUsage, guarded('getSessionUsage', () => ops.getSessionUsage()));
 
-  ipcMain.handle(BRIDGE_API.filePathMenu, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.filePathMenu, guarded('filePathMenu', (_event, raw: unknown) => {
     const path = parseFilePathInput(raw);
     if (!path) throw new Error(`filePathMenu: 非法参数 ${String(raw)}`);
     ops.filePathMenu(path);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.filePathOpen, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.filePathOpen, guarded('filePathOpen', (_event, raw: unknown) => {
     const path = parseFilePathInput(raw);
     if (!path) throw new Error(`filePathOpen: 非法参数 ${String(raw)}`);
     return ops.filePathOpen(path);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.windowControl, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.windowControl, guarded('windowControl', (_event, raw: unknown) => {
     const action = parseWindowAction(raw);
     if (action === null) throw new Error(`windowControl: 非法动作 ${String(raw)}`);
     ops.windowControl(action);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.pluginList, () => ops.pluginList());
+  ipcMain.handle(BRIDGE_API.pluginList, guarded('pluginList', () => ops.pluginList()));
 
-  ipcMain.handle(BRIDGE_API.pluginSetEnabled, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.pluginSetEnabled, guarded('pluginSetEnabled', (_event, raw: unknown) => {
     const input = parsePluginSetEnabledInput(raw);
     if (!input) return { ok: false, error: '插件开关参数非法' };
     return ops.pluginSetEnabled(input);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.pluginSetRemoved, (_event, raw: unknown) => {
+  ipcMain.handle(BRIDGE_API.pluginSetRemoved, guarded('pluginSetRemoved', (_event, raw: unknown) => {
     const input = parsePluginSetRemovedInput(raw);
     if (!input) return { ok: false, error: '插件移除参数非法' };
     return ops.pluginSetRemoved(input);
-  });
+  }));
 
-  ipcMain.handle(BRIDGE_API.troubleshoot, () => ops.troubleshoot());
+  ipcMain.handle(BRIDGE_API.troubleshoot, guarded('troubleshoot', () => ops.troubleshoot()));
 }
 
 export function sendServiceStatus(win: BrowserWindow, event: ShellStatusEvent): void {

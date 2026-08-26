@@ -30,6 +30,22 @@ describe('redact（日志凭据脱敏，架构文档 §8.5）', () => {
     const line = 'MONKEY=some-harmless-long-value KEYWORD=another-harmless-value';
     expect(redact(line)).toBe(line);
   });
+
+  it('redacts x-api-key / x-auth-token header forms (安全审查 P1-2)', () => {
+    expect(redact('x-api-key: sk-abcdefghijklmnopqrstuv')).toBe('x-api-key: [REDACTED]');
+    expect(redact('x-auth-token = 0123456789abcdef0123456789abcdef')).toBe('x-auth-token = [REDACTED]');
+  });
+
+  it('redacts bare Authorization header tokens (安全审查 P1-2)', () => {
+    expect(redact('Authorization: 0123456789abcdef0123456789abcdef')).toBe(
+      'Authorization: [REDACTED]',
+    );
+  });
+
+  it('不误伤短 authorization 值（非凭据长度）', () => {
+    const line = 'authorization: pending';
+    expect(redact(line)).toBe(line);
+  });
 });
 
 describe('buildLogLine', () => {

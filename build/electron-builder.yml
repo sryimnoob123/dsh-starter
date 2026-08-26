@@ -1,0 +1,76 @@
+# electron-builder 配置骨架（架构文档 §7 打包配置切换位，[FR-32.1]）
+# 统一开源版：只出安装包、不含任何授权逻辑（[D70]）。
+#
+# [2026-08-23 调研修正] 生态共识（EAC/dsh-studio/anywhere-labs）：压缩载荷只出现在
+# 安装器里（NSIS 默认 7z 载荷，安装时解压、带进度条、秒级到十秒级），首启不做任何解压。
+# 之前设 compression: store + useZip 把 7z 载荷关掉了 → NSIS 逐文件直写 5 万+ 文件 =
+# 安装几分钟（首启黑屏 2 分钟也是方案 B 首启解压导致的，均弃用）。
+# 恢复默认：NSIS 7z 压缩载荷 + 安装时解压（带进度），首启直接跑，无解压无黑屏。
+
+appId: com.dshdesktop.app
+productName: deepseek-harness-starter
+directories:
+  output: dist/installer
+  buildResources: build
+# [调研修正] 去掉 compression: store——恢复 NSIS 默认 7z 压缩载荷（安装时解压带进度）。
+# 不再用 useZip（ZIP/Deflate 直写）与 differentialPackage 强制 normal 的互相抵消。
+# compression 保持默认（normal）即可：electron-builder 对 NSIS 载荷做 7z 压缩。
+files:
+  - dist/main/**/*
+  - assets/**/*
+  - plugins/**/*
+  - package.json
+  # 捆绑第三方 bug-fix 插件 win-terminal-inspector（win32 持久终端修复，MIT；含 LICENSE/NOTICE 归属声明）
+  - vendor/win-terminal-inspector/**/*
+# [F1 开箱即用修复] plugins 必须 asarUnpack：壳启动用 fs.cpSync 把内置插件从
+# app.getAppPath()/plugins 复制进 DSH runtime——asar 虚拟文件系统不支持 cpSync
+# （只读），打包后复制必然 ENOENT（2026-08-23 真机教训）。解包到 app.asar.unpacked/ 后
+# 是真实文件系统，复制恢复正常。
+asarUnpack:
+  - plugins/**/*
+# [2026-08-25 tgz 归档] DSH 运行时 + 种子打包成 2 个 tgz（scripts/prepare-archives.mjs 生成，
+# 含 .sha256）：NSIS 只解压 2 个大文件（安装 10 分钟 → 秒级），首启由 extractRuntimes 用
+# 系统 tar.exe 解压回安装目录（43500 小文件是 NSIS 单线程解压瓶颈，见设计文档
+# docs/aegis/work/2026-08-25-tgz-firstrun-design.md）。dsh 运行时落在 <安装根>/dsh/node_modules
+# （壳 spawn dsh 用），种子落在 <安装根>/dsh-home-seed（首启播种用，阶段2 后删除）。
+extraFiles:
+  - from: build/archives/dsh-runtime.tgz
+    to: dsh-archives/dsh-runtime.tgz
+  - from: build/archives/dsh-runtime.tgz.sha256
+    to: dsh-archives/dsh-runtime.tgz.sha256
+  - from: build/archives/dsh-home-seed.tgz
+    to: dsh-archives/dsh-home-seed.tgz
+  - from: build/archives/dsh-home-seed.tgz.sha256
+    to: dsh-archives/dsh-home-seed.tgz.sha256
+win:
+  target:
+    - nsis
+  icon: assets/icon.png
+  # [2026-08-26 瘦身] 只留中英文 locale（~46M）：壳与 DSH 页面均为中/英 UI，
+  # 其余 53 种 Chromium 语言资源用不到。electron-builder 官方白名单，不影响功能。
+  electronLanguages:
+    - zh-CN
+    - en-US
+# [D78] 自动更新：GitHub 发布源（生成 latest.yml + 内嵌 app-update.yml；
+# 产物仍用 gh CLI 上传到 Release，electron-builder 本身不发布）
+publish:
+  provider: github
+  owner: sryimnoob123
+  repo: dsh-starter
+  publishAutoUpdate: true
+nsis:
+  # [2026-08-23 拍板] 向导式安装：用户可选安装目录（allowToChangeInstallationDirectory）
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # [2026-08-25 修复] 显式 per-user 默认：装到 %LOCALAPPDATA%\Programs\，避免默认装进
+  # Program Files（dsh-home 数据目录 = 安装目录，Program Files 下普通用户无写权限，
+  # 服务启动 mkdir 抛 EPERM 起不来——真实用户 v0.4.8 踩到）。用户仍可在向导里选其他目录。
+  perMachine: false
+  # [调研修正] 去掉 useZip: true（那是 Deflate 直解、无压缩载荷的旧路子）；
+  # 走 NSIS 默认 7z 压缩载荷 + 安装时解压进度条。
+  # 关闭差分包：自动更新时下载完整安装包（体积换取解压速度与稳定性）。
+  differentialPackage: false
+  # 卸载时删除应用数据（AppData 里的配置/日志/下载的 Node 运行时），更新时自动保留
+  deleteAppDataOnUninstall: true
+  # 产物名与 latest.yml 的 url/path 严格一致（连字符），自动更新才能命中资产
+  artifactName: ${productName}-Setup-${version}.${ext}

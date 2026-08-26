@@ -10,7 +10,8 @@
  *   种子的完整配置（皮肤/主题/权限/模型引用/插件配置），随后删 dsh-home-seed 残留——
  *   终态只有 exe + dsh + dsh-home 三件套。
  */
-import { cpSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cp as cpAsync, rename as renameAsync } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** 文件大小（不存在返回 -1）；settings 空壳判定用 */
@@ -36,10 +37,14 @@ export function isSettingsShell(path: string): boolean {
 /**
  * 阶段 1（spawn 前）：web profile 缺失时从种子整体拷贝（106 插件 + patch + manifest）。
  * 不删 dsh-home-seed（阶段 2 还要读 settings）；已存在 → 用户数据绝不动。
+ *
+ * 2026-08-25 修复（首启无响应）：同步 cpSync 拷贝 106 插件 profile 阻塞主进程 2.5 分钟，
+ * 窗口无响应、Windows 弹"无响应"警告（真实用户"win11 打不开"根因）。改异步 fs.promises.cp，
+ * 主进程事件循环不被阻塞，窗口保持响应。
  */
-export function seedProfileFromBundled(options: {
+export async function seedProfileFromBundled(options: {
   installDir: string;
-}): { seeded: boolean; reason: string } {
+}): Promise<{ seeded: boolean; reason: string }> {
   const seedRoot = join(options.installDir, 'dsh-home-seed', 'profiles', 'web');
   if (!existsSync(seedRoot)) {
     return { seeded: false, reason: 'no-bundled-seed' };
@@ -49,8 +54,18 @@ export function seedProfileFromBundled(options: {
     return { seeded: false, reason: 'profile-exists' };
   }
   try {
-    cpSync(seedRoot, target, { recursive: true });
-    return { seeded: true, reason: 'seeded-from-bundle' };
+    // 同盘 rename 瞬时完成（跨盘才触发系统拷贝）。rename 失败（跨卷/权限）→ 回退 cpAsync
+    try {
+      await renameAsync(seedRoot, target);
+      return { seeded: true, reason: 'seeded-from-bundle' };
+    } catch {
+      // 同盘 rename 失败但 seed 还在 → 走拷贝（跨盘或权限场景）
+      if (existsSync(seedRoot)) {
+        await cpAsync(seedRoot, target, { recursive: true });
+        return { seeded: true, reason: 'seeded-from-bundle' };
+      }
+      return { seeded: false, reason: 'copy-failed' };
+    }
   } catch {
     return { seeded: false, reason: 'copy-failed' };
   }
@@ -66,11 +81,11 @@ export function finalizeSeedSettings(options: {
 }): { applied: boolean; reason: string } {
   const dshHome = join(options.installDir, 'dsh-home');
   const seedSettings = join(options.installDir, 'dsh-home-seed', 'settings.yaml');
+  const userSettings = join(dshHome, 'settings.yaml');
+  const settingsMissing = !existsSync(userSettings);
+  const settingsShell = !settingsMissing && isSettingsShell(userSettings);
   let applied = false;
   if (existsSync(seedSettings)) {
-    const userSettings = join(dshHome, 'settings.yaml');
-    const settingsMissing = !existsSync(userSettings);
-    const settingsShell = !settingsMissing && isSettingsShell(userSettings);
     if (settingsMissing || settingsShell) {
       try {
         cpSync(seedSettings, userSettings);
@@ -78,6 +93,11 @@ export function finalizeSeedSettings(options: {
       } catch {
         // 拷贝失败不阻塞清理
       }
+    } else {
+      // [2026-08-26 升级补丁] 用户 settings 有实质内容（4.8 升级产物）但缺
+      // dsh-better-sidebar 标题栏兼容段（4.8 种子净化误删，4.3 有）→ 合并补上该段，
+      // 不覆盖用户其他配置（4.8 真实用户按钮重叠根因）。
+      applied = mergeMissingSidebarCompat(seedSettings, userSettings);
     }
   }
   // 播种完成（无论是否补 settings）→ 删种子残留，终态只有 exe + dsh + dsh-home
@@ -86,5 +106,49 @@ export function finalizeSeedSettings(options: {
   } catch {
     // 删除失败不阻塞（下次启动再清）；日志由调用方记
   }
-  return { applied, reason: applied ? 'settings-seeded' : 'no-seed-settings' };
+  return { applied, reason: applied ? (settingsMissing || settingsShell ? 'settings-seeded' : 'sidebar-compat-merged') : 'no-seed-settings' };
+}
+
+/**
+ * 升级补丁：用户 settings 缺 dsh-better-sidebar 段时，从种子合并该段（保留用户其他内容）。
+ * 段已存在但缺关键字段（interceptOpenPath）时，只补该字段——用户已有字段绝不覆盖。
+ * 纯文本按段合并（settings.yaml 是简单键值 YAML，段首无缩进）。
+ */
+function mergeMissingSidebarCompat(seedSettings: string, userSettings: string): boolean {
+  try {
+    const userText = readFileSync(userSettings, 'utf8');
+    // 段缺失 → 整体合并
+    if (!userText.includes('dsh-better-sidebar')) {
+      const seedText = readFileSync(seedSettings, 'utf8');
+      // 从种子提取 dsh-better-sidebar 段（段首无缩进，到下一个无缩进行为止）
+      const lines = seedText.split(/\r?\n/);
+      let inSidebar = false;
+      const sidebarLines: string[] = [];
+      for (const line of lines) {
+        if (line === 'dsh-better-sidebar:') { inSidebar = true; sidebarLines.push(line); continue; }
+        if (inSidebar) {
+          if (/^\S/.test(line) && line.length > 0) break; // 下一个顶层段
+          sidebarLines.push(line);
+        }
+      }
+      if (sidebarLines.length === 0) return false;
+      // 用户 settings 末尾补一段
+      const merged = userText.replace(/\s*$/, '\n') + '\n' + sidebarLines.join('\n') + '\n';
+      writeFileSync(userSettings, merged, 'utf8');
+      return true;
+    }
+    // 2. 段存在但缺 interceptOpenPath → 补该字段（UI「打开路径拦截」开关，045/046/047 种子都有，
+    //    4.8 净化误删整段、首次修复只补了 titleBar 3 字段 → 升级用户该自定义项消失）
+    if (!userText.includes('interceptOpenPath')) {
+      const seedText = readFileSync(seedSettings, 'utf8');
+      if (!seedText.includes('interceptOpenPath')) return false; // 种子也没有（dev 场景）不动作
+      const merged = userText.replace(/(dsh-better-sidebar:\s*\r?\n)/, '$1  interceptOpenPath: true\n');
+      if (merged === userText) return false;
+      writeFileSync(userSettings, merged, 'utf8');
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }

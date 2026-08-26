@@ -174,6 +174,10 @@ export function setUpdateActionHandler(handler: (action: UpdateAction) => void):
 
 // 窗口按钮动作的单一注册点（模块加载时注册一次即可）
 ipcMain.handle(ACTION_CHANNEL, (_event, raw: unknown) => {
+  // [IPC sender 校验] 只接受更新窗自己的调用（安全审查 P0-2）
+  if (!updateWindow || updateWindow.isDestroyed() || _event.sender.id !== updateWindow.webContents.id) {
+    throw new Error(`ipc denied: update action from untrusted sender (webContents ${_event.sender.id})`);
+  }
   const action = typeof raw === 'string' ? (raw as UpdateAction) : null;
   if (action === 'dismiss') {
     dismissUpdateWindow();

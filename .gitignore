@@ -5,10 +5,24 @@ vendor/*
 # 捆绑的第三方 bug-fix 插件（需入库；vendor/dsh 仍不入库，由 prepare-dsh 重新下载）
 !vendor/win-terminal-inspector/
 !vendor/win-terminal-inspector/**
-# 详细内部文档 / 技能 / 项目指令（本地维护，不发 GitHub；README 引用的截图除外）
+# 详细内部文档 / 技能 / 项目指令（本地维护，不发 GitHub；只发精简的 docs/技术文档.md）
 skills/
 AGENTS.md
 docs/*
-!docs/screenshot-main.png
+!docs/技术文档.md
 *.log
 .DS_Store
+
+# 发布安全红线：本机数据/密钥/打包残留绝不入库（2026-08-26 发布审查 P0）
+_tmp/
+dev-userdata/
+dsh-home/
+dsh-workspace-home/
+build/archives/
+build/dsh-home-seed/
+build/.store-normalize/
+*.tgz
+*.dsh-bak
+build/bundles/
+build/seed-dsh-home/
+SHELL-RESCUE.md

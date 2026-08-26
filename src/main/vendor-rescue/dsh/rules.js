@@ -86,6 +86,27 @@ export const dshLoaderEntryFailedRule = {
             : { kind: 'loader-entry-failed', detail: m[0] };
     },
 };
+/** 浏览器端 client bundle 加载失败（2026-08-25 真机样本：dsh-session-log-export）。
+ *  dsh-client-modules 加载 bundle script 失败时报 `client-modules: bundle script <url> failed to load`，
+ *  URL 形如 /plugins/<包名>/client.js（真机样本为 `client-modules:bundlescript/plugins/.../client.jsrev-<hash> failed to load`，
+ *  bundlescript 连写、client.js 后直接跟 rev 哈希）。从 URL 提取包名归因；包名不合法或不在已知清单 → 无 suspect。
+ *  处置语义与 loader-entry-failed 一致：隔离肇事插件（浏览器端 bundle 坏 = 插件实体问题）。 */
+const CLIENT_BUNDLE_FAILED = /client-modules:\s*bundlescript\s*\/plugins\/((?:@[^\/]+\/)?[^\/]+)\/client\.js[^\n]*failed to load/i;
+export const dshClientBundleFailedRule = {
+    name: 'dsh-client-bundle-failed',
+    diagnose(crash) {
+        const m = CLIENT_BUNDLE_FAILED.exec(crash.stderr);
+        if (!m)
+            return null;
+        const pkg = stripVersionSuffix(m[1] ?? '');
+        if (!isValidNpmPackageName(pkg))
+            return { kind: 'client-bundle-failed', detail: m[0] };
+        const hit = matchKnown(crash.knownPlugins, pkg);
+        return hit
+            ? { kind: 'client-bundle-failed', suspect: hit, detail: m[0] }
+            : { kind: 'client-bundle-failed', detail: m[0] };
+    },
+};
 /** 坏 YAML（cordis.patch.yml 解析失败，如 2026-08-23 真机 `name: [unclosed` 注入）。
  *  处置 = 恢复写前备份（repair restore-patch-yaml），不隔离不烧预算。
  *  必须排在 dshLoaderEntryFailedRule 之前——YAML 崩先于 loader 命中，否则 loader 规则
@@ -131,4 +152,5 @@ export const dshDiagnosers = [
     dshBadPatchYamlRule,
     dshFallbackBlockerRule,
     dshLoaderEntryFailedRule,
+    dshClientBundleFailedRule,
 ];

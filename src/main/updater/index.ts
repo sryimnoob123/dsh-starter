@@ -1,4 +1,5 @@
 import { app, dialog, Notification } from 'electron';
+import { dirname, join } from 'node:path';
 import electronUpdater from 'electron-updater';
 import {
   closeUpdateWindow,
@@ -11,6 +12,7 @@ import {
 } from './progressWindow.js';
 import { shouldInstallUpdate, extractReleaseNotes, shouldSuppressPopup } from './version.js';
 import type { ConfigStore } from '../config/store.js';
+import { backupDshHomeBeforeUpdate } from '../install/restorePreservedDshHome.js';
 
 const { autoUpdater } = electronUpdater;
 
@@ -257,6 +259,15 @@ export async function promptInstall(version: string): Promise<void> {
     cancelId: 1,
   });
   if (response === 0) {
+    // [P0 数据丢失止血] 安装前先备份 dsh-home 到 %TEMP%\dsh-home-backup（不依赖 NSIS 宏）。
+    // 更新后启动时若 dsh-home 为空壳（宏失效/整目录被删），从备份恢复。
+    // 备份失败不阻塞安装（NSIS preserve 宏仍可能生效；恢复通道双保险）。
+    try {
+      const installDir = app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath();
+      backupDshHomeBeforeUpdate(join(installDir, 'dsh-home'));
+    } catch {
+      // 备份失败不阻塞安装
+    }
     // setImmediate 延迟一拍再装（OpenChamber 实测经验）：避免与挂起中的 IPC invoke 竞态，
     // 否则可能出现"看起来重启了但安装没生效"。before-quit 会先杀掉壳拉起的 DSH 服务，
     // 安装器不会因文件锁失败。

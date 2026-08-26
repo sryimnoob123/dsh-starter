@@ -260,7 +260,14 @@ export function createDshIsolator(options) {
                             continue;
                         if (!lstatSync(entry).isDirectory())
                             continue;
+                        // [安全审查 P3] 备份目标与 remove-fallback-blocker 对齐：目录名拼进备份路径前
+                        // 先过 isInside 校验（防异常目录名把备份移出 backupRoot；Windows 目录名不可含
+                        // 分隔符，此为纵深防御一致性）
                         const backupDir = backupDirFor(`fallback-${name}`);
+                        if (!isInside(backupRoot, backupDir)) {
+                            failed += 1;
+                            continue;
+                        }
                         if (existsSync(backupDir))
                             rmSync(backupDir, { recursive: true, force: true });
                         mkdirSync(backupDir, { recursive: true });
