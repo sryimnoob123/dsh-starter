@@ -298,6 +298,20 @@ const hotMountHandled = new Set<string>();
  */
 async function handleHotMountFailure(win: BrowserWindow, packageName: string): Promise<void> {
   writeLog('shell', `hot mount failed detected: ${packageName}, isolating`);
+  // [2026-08-27 自救缺陷修复] hot mount 失败先试 repair（G1 duplicate-route → reorder-bundles）：
+  // 双挂载场景（聚合包×独立包，如 dsh-web-ui-all × dsh-better-sidebar）正确处置是重排 bundle
+  // 顺序让被挂包自带的防双挂载守卫生效，不是隔离（隔离会把没坏的插件实体删掉，方向反了）。
+  // 仅当 stderr 有 webserver duplicate route 特征且 repair 成功才走修复；否则回落隔离。
+  if (/webserver: duplicate (?:exact|prefix|upgrade) route|webserver: fallback already registered/i.test(crashStderrBuffer)) {
+    const repairResult = await rescueIsolator().repair?.({ kind: 'reorder-bundles', target: packageName });
+    if (repairResult?.ok) {
+      writeLog('shell', `hot mount duplicate-route repaired (reorder-bundles): ${packageName}`);
+      notifySelfRescue(`检测到插件 ${packageName} 与聚合包重复挂载，已自动调整加载顺序（可在弹窗中恢复）`);
+      void generateDiagnosticReport({ kind: 'duplicate-route-repaired', problem: `插件 ${packageName} 与聚合包重复挂载，已自动调整 bundle 顺序。`, plugin: packageName });
+      await restartService(win);
+      return;
+    }
+  }
   const result = await rescueIsolator().isolate({ id: packageName, packageName });
   if (!result.ok) {
     writeLog('shell', `hot mount isolate failed: ${result.detail ?? 'unknown error'}`);
@@ -1422,6 +1436,18 @@ async function startShellInner(win: BrowserWindow): Promise<void> {
             if (outcome.action === 'isolated' && outcome.packageName !== undefined) {
               writeLog('shell', `post-ready crash isolated: ${outcome.packageName}, restarting shell`);
               await applyIsolationAndRestart(win, outcome.packageName);
+              return;
+            }
+            // [2026-08-27 自救缺陷修复层3] give-up（预算耗尽/已隔离过/诊断无肇事）→ 不再
+            // scheduleServiceRestart 空转（引擎已锁会话，重启只会再崩再 give-up，用户看到
+            // 反复崩溃重启）。与 boot 路径一致：落引导页 + 诊断报告，停手等用户。
+            if (outcome.action === 'give-up') {
+              writeLog('shell', `self-rescue gave up (${outcome.reason}), stopping auto-restart`);
+              restartAttempts = 0;
+              emitServiceStatus(win, 'failed', '服务连续崩溃，已停止自动重试（查看日志排查问题）');
+              notifySelfRescue('服务连续多次崩溃，已停止自动重试，请查看日志或使用修复功能');
+              void generateDiagnosticReport({ kind: 'gave-up', problem: '服务连续多次崩溃，已停止自动重试。请根据下方诊断数据定位根因并给出修复步骤。' });
+              void loadGuide(win, 'spawn-crash');
               return;
             }
             // 未隔离（预算耗尽/已隔离过/诊断无肇事）→ 维持原退避重启

@@ -5,8 +5,32 @@ const MODULE_NOT_FOUND = /Cannot find (?:package|module) '([^']+)'/;
 const DUPLICATE_ENTRY = /duplicate loader entry id:\s*(\S+)/;
 /** cordis 装载插件失败：`failed to apply/import loader entry <id> (<包名>): <原因>`。
  *  覆盖「插件版本与 DSH 不兼容」（如 dsh-mobile 只支持 0.1.0-rc.5/6/7）、插件语法错误等
- *  ——这些崩溃不是「缺包」，缺包规则认不出。 */
-const LOADER_ENTRY_FAILED = /failed to (?:apply|import) loader entry \S+ \(([^)]+)\):/;
+ *  ——这些崩溃不是「缺包」，缺包规则认不出。
+ *  [2026-08-27 自救缺陷修复 G2] 补 dispose/rollback 变体——loader 在 dispose/rollback
+ *  阶段失败同样会崩（`failed to dispose loader entry` / `failed to rollback loader entry`），
+ *  原正则只认 apply/import 会漏。 */
+const LOADER_ENTRY_FAILED = /failed to (?:apply|import|dispose|rollback) loader entry \S+ \(([^)]+)\):/;
+/** [2026-08-27 自救缺陷修复 G1] webserver 重复路由（聚合包 × 独立包双挂载的标准崩溃，
+ *  如 dsh-web-ui-all 挂 dsh-better-sidebar 与顶层 bundle 双挂 → 各自注册 /sidebar/api）。
+ *  报错形态：`failed to apply loader entry <id> (<包名>): webserver: duplicate prefix route "/sidebar/api"`
+ *  或裸 `webserver: duplicate <exact|prefix|upgrade> route "<path>"` / `webserver: fallback already registered`。
+ *  归因：优先从 loader entry 的 (<包名>) 提取（双挂的独立包）；提取不到则从 knownPlugins 里
+ *  找「注册了该路由的插件」——stderr 无包名时无法精确归因，交给决策层（无 suspect 不处置）。 */
+const DUPLICATE_ROUTE = /webserver: duplicate (?:exact|prefix|upgrade) route "([^"]+)"|webserver: fallback already registered/i;
+const LOADER_ENTRY_PKG = /failed to (?:apply|import|dispose|rollback) loader entry \S+ \(([^)]+)\):/;
+/** [2026-08-27 自救缺陷修复 G3] 服务依赖悬空（inject 依赖缺失的最终形态，聚合包子插件
+ *  依赖父服务时高发）：`<bin>: <N> entries did not activate` + `pending (waiting for service: <name>)`。
+ *  归因：从 pending 行提取 entry 包名（`<id> (<包名>): pending (waiting for service: ...)`）。 */
+const PENDING_SERVICE = /(\d+) entries? did not activate[\s\S]{0,2000}?pending \(waiting for service: ([^)]+)\)/i;
+const PENDING_ENTRY_PKG = /([A-Za-z0-9._-]+) \(([^)]+)\):\s*pending \(waiting for service:/i;
+/** [2026-08-27 自救缺陷修复 G5] patch/overlay 校验类 throw（坏 YAML 规则的近亲）：
+ *  `must be a top-level YAML array of loader patch entries` / `entry N must be a mapping` /
+ *  `failed to read overlay` / `config file must be a top-level array`。归入坏 YAML repair。 */
+const PATCH_VALIDATION = /(?:must be a top-level YAML array of loader patch entries|entry \d+ must be a mapping|failed to read (?:overlay|patch)|config file must be a top-level array)/i;
+/** [2026-08-27 自救缺陷修复 G6] 浏览器端 client 双执行（与后端双挂载同源）：
+ *  `client-modules: duplicate graph entry "<id>"` / `duplicate factory registration for "<id>"`。
+ *  归因：从 URL/包名提取（`/plugins/<包名>/client.js` 或 entry id 映射）。 */
+const CLIENT_DUPLICATE = /client-modules: duplicate (?:graph entry|factory registration)(?: for)? "([^"]+)"/i;
 /** 剥包名可能的 @version 尾巴；@scope/name（scope @ 在下标 0）不受影响。 */
 function stripVersionSuffix(raw) {
     const at = raw.lastIndexOf('@');
@@ -146,11 +170,89 @@ export const dshFallbackBlockerRule = {
         return { kind: 'fallback-blocker', repair: { kind: 'purge-fallback-blockers', target: '' }, detail: m[0] };
     },
 };
+/** [2026-08-27 自救缺陷修复 G1] webserver 重复路由（聚合包 × 独立包双挂载）。
+ *  归因：优先从 loader entry 的 (<包名>) 提取（双挂的独立包）；提取不到 → 无 suspect
+ *  （stderr 无包名无法精确归因，不处置白烧预算）。处置 = repair reorder-bundles
+ *  （把聚合包移到被挂包之前，让被挂包自带的防双挂载守卫生效）——比隔离更优：
+ *  隔离会把没坏的插件实体整个删掉，方向反了。 */
+export const dshDuplicateRouteRule = {
+    name: 'dsh-duplicate-route',
+    diagnose(crash) {
+        const m = DUPLICATE_ROUTE.exec(crash.stderr);
+        if (!m)
+            return null;
+        const entry = LOADER_ENTRY_PKG.exec(crash.stderr);
+        if (entry) {
+            const pkg = stripVersionSuffix(entry[1] ?? '');
+            if (isValidNpmPackageName(pkg)) {
+                const hit = matchKnown(crash.knownPlugins, pkg);
+                if (hit) {
+                    // 双挂的独立包 → repair 重排（聚合包移到它之前）；repair 失败才考虑隔离
+                    return {
+                        kind: 'duplicate-route',
+                        suspect: hit,
+                        repair: { kind: 'reorder-bundles', target: pkg },
+                        detail: m[0],
+                    };
+                }
+            }
+        }
+        return { kind: 'duplicate-route', detail: m[0] };
+    },
+};
+/** [2026-08-27 自救缺陷修复 G3] 服务依赖悬空（inject 缺失）。
+ *  归因：从 pending 行提取 entry 包名；包名不合法或不在已知清单 → 无 suspect。 */
+export const dshPendingServiceRule = {
+    name: 'dsh-pending-service',
+    diagnose(crash) {
+        const m = PENDING_SERVICE.exec(crash.stderr);
+        if (!m)
+            return null;
+        const entry = PENDING_ENTRY_PKG.exec(crash.stderr);
+        if (entry) {
+            const pkg = stripVersionSuffix(entry[2] ?? '');
+            if (isValidNpmPackageName(pkg)) {
+                const hit = matchKnown(crash.knownPlugins, pkg);
+                if (hit)
+                    return { kind: 'pending-service', suspect: hit, detail: m[0] };
+            }
+        }
+        return { kind: 'pending-service', detail: m[0] };
+    },
+};
+/** [2026-08-27 自救缺陷修复 G5] patch/overlay 校验类 throw → 归入坏 YAML repair。 */
+export const dshPatchValidationRule = {
+    name: 'dsh-patch-validation',
+    diagnose(crash) {
+        const m = PATCH_VALIDATION.exec(crash.stderr);
+        if (!m)
+            return null;
+        return { kind: 'bad-patch-yaml', repair: { kind: 'restore-patch-yaml', target: '' }, detail: m[0] };
+    },
+};
+/** [2026-08-27 自救缺陷修复 G6] 浏览器端 client 双执行 → 归因到包名并隔离。 */
+export const dshClientDuplicateRule = {
+    name: 'dsh-client-duplicate',
+    diagnose(crash) {
+        const m = CLIENT_DUPLICATE.exec(crash.stderr);
+        if (!m)
+            return null;
+        const id = (m[1] ?? '').trim();
+        const hit = matchKnown(crash.knownPlugins, id);
+        return hit
+            ? { kind: 'client-duplicate', suspect: hit, detail: m[0] }
+            : { kind: 'client-duplicate', detail: m[0] };
+    },
+};
 export const dshDiagnosers = [
     dshModuleNotFoundRule,
     dshDuplicateEntryRule,
     dshBadPatchYamlRule,
+    dshPatchValidationRule,
     dshFallbackBlockerRule,
     dshLoaderEntryFailedRule,
     dshClientBundleFailedRule,
+    dshDuplicateRouteRule,
+    dshPendingServiceRule,
+    dshClientDuplicateRule,
 ];

@@ -20,4 +20,17 @@ export declare const dshLoaderEntryFailedRule: Diagnoser;
 export declare const dshClientBundleFailedRule: Diagnoser;
 export declare const dshBadPatchYamlRule: Diagnoser;
 export declare const dshFallbackBlockerRule: Diagnoser;
+/** [2026-08-27 自救缺陷修复 G1] webserver 重复路由（聚合包 × 独立包双挂载）。
+ *  归因：优先从 loader entry 的 (<包名>) 提取（双挂的独立包）；提取不到 → 无 suspect
+ *  （stderr 无包名无法精确归因，不处置白烧预算）。处置 = repair reorder-bundles
+ *  （把聚合包移到被挂包之前，让被挂包自带的防双挂载守卫生效）——比隔离更优：
+ *  隔离会把没坏的插件实体整个删掉，方向反了。 */
+export declare const dshDuplicateRouteRule: Diagnoser;
+/** [2026-08-27 自救缺陷修复 G3] 服务依赖悬空（inject 缺失）。
+ *  归因：从 pending 行提取 entry 包名；包名不合法或不在已知清单 → 无 suspect。 */
+export declare const dshPendingServiceRule: Diagnoser;
+/** [2026-08-27 自救缺陷修复 G5] patch/overlay 校验类 throw → 归入坏 YAML repair。 */
+export declare const dshPatchValidationRule: Diagnoser;
+/** [2026-08-27 自救缺陷修复 G6] 浏览器端 client 双执行 → 归因到包名并隔离。 */
+export declare const dshClientDuplicateRule: Diagnoser;
 export declare const dshDiagnosers: readonly Diagnoser[];

@@ -26,6 +26,8 @@ export interface RepairRequest {
     kind: string;
     /** 修复目标（entry id / 包名，随 kind 语义） */
     target: string;
+    /** [2026-08-27] reorder-bundles 专用：聚合包要移到哪个包之前（让守卫生效） */
+    before?: string;
 }
 export interface Diagnoser {
     name: string;

@@ -142,15 +142,28 @@ export function createDshIsolator(options) {
                     return { ok: false, detail: `backup failed for ${packageName}, isolation aborted` };
                 }
                 let changed = false;
-                // 1) manifest：dsh.profile.bundles 移除该包（文件不存在/无该包则跳过）
+                // 1) manifest：dsh.profile.bundles 移除该包 + dependencies 移除该包（文件不存在/无该包则跳过）
+                //    [2026-08-27 自救缺陷修复] 只摘 bundles 不摘 dependencies 会让重启后 loader 仍按
+                //    dependencies 找包 → module-not-found 继续崩 → 反复隔离/重启死循环（v0.5.0 用户
+                //    装 dsh-web-ui-all 崩溃后实测）。dependencies 摘除后 pnpm 状态文件（.modules.yaml/
+                //    lockfile）仍记录该包，但 loader 只按 manifest 的 bundles+dependencies 引用——
+                //    摘除后不再引用，崩溃即止。restore 按 meta.manifest.originalText 原样写回（含
+                //    dependencies），恢复完整。
                 const manifest = readProfileManifest(profileDir);
                 if (manifest) {
                     const profileObj = (manifest.dsh ?? {});
                     const profile = (profileObj.profile ?? {});
                     const bundles = Array.isArray(profile.bundles) ? profile.bundles : [];
-                    if (bundles.includes(packageName)) {
+                    const deps = (manifest.dependencies ?? {});
+                    const bundlesChanged = bundles.includes(packageName);
+                    const depsChanged = Object.prototype.hasOwnProperty.call(deps, packageName);
+                    if (bundlesChanged || depsChanged) {
+                        const nextDeps = { ...deps };
+                        if (depsChanged)
+                            delete nextDeps[packageName];
                         writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
                             ...manifest,
+                            dependencies: nextDeps,
                             dsh: { ...profileObj, profile: { ...profile, bundles: bundles.filter((n) => n !== packageName) } },
                         }, null, 2) + '\n', 'utf8');
                         changed = true;
@@ -325,6 +338,45 @@ export function createDshIsolator(options) {
                         rmSync(target, { recursive: true, force: true });
                     }
                     return { ok: true, detail: `moved non-symlink dir to backup: ${request.target}` };
+                }
+                if (request.kind === 'reorder-bundles') {
+                    // [2026-08-27 自救缺陷修复 G1] 聚合包 × 独立包双挂载：request.target = 被挂包
+                    // （如 dsh-better-sidebar），自动扫描 manifest dependencies 找「声明了该包的聚合包」
+                    // （如 dsh-web-ui-all 的 dependencies 里有 dsh-better-sidebar）→ 把聚合包移到被挂包
+                    // 之前，让被挂包自带的防双挂载守卫生效（守卫按 loader 处理顺序求值，聚合包在前
+                    // 即可看到并禁用自身）。显式 request.before 优先（规则侧已知聚合包时直接指定）。
+                    // 原子写回（temp+rename），失败不破坏原 manifest。
+                    const manifest = readProfileManifest(profileDir);
+                    if (!manifest)
+                        return { ok: false, detail: 'no manifest to reorder' };
+                    const profileObj = (manifest.dsh ?? {});
+                    const profile = (profileObj.profile ?? {});
+                    const bundles = Array.isArray(profile.bundles) ? profile.bundles : [];
+                    const target = request.target;
+                    if (!bundles.includes(target))
+                        return { ok: true, detail: 'already-clean' };
+                    // 找聚合包：显式 before 优先；否则扫 dependencies 里声明了 target 的包
+                    let agg = request.before ?? '';
+                    if (!agg || !bundles.includes(agg)) {
+                        const deps = (manifest.dependencies ?? {});
+                        agg = Object.keys(deps).find((d) => d !== target && bundles.includes(d)) ?? '';
+                    }
+                    if (!agg || !bundles.includes(agg))
+                        return { ok: true, detail: 'no-aggregator-found' };
+                    const idxAgg = bundles.indexOf(agg);
+                    const idxTarget = bundles.indexOf(target);
+                    if (idxAgg < idxTarget)
+                        return { ok: true, detail: 'already-ordered' };
+                    const next = [...bundles];
+                    next.splice(idxAgg, 1);
+                    next.splice(idxTarget, 0, agg);
+                    const tmpPath = join(profileDir, 'package.json.tmp');
+                    writeFileSync(tmpPath, JSON.stringify({
+                        ...manifest,
+                        dsh: { ...profileObj, profile: { ...profile, bundles: next } },
+                    }, null, 2) + '\n', 'utf8');
+                    renameSync(tmpPath, join(profileDir, 'package.json'));
+                    return { ok: true, detail: `reordered ${agg} before ${target}` };
                 }
                 if (request.kind !== 'drop-duplicate-insert') {
                     return { ok: false, detail: `unknown repair kind: ${request.kind}` };
